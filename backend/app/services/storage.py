@@ -69,14 +69,25 @@ class LocalFilesystemBackend:
     """Browse and read files from the local filesystem."""
 
     def __init__(self, root_path: str | None = None) -> None:
-        self._root = Path(root_path) if root_path else Path.home()
+        self._root = (Path(root_path) if root_path else Path.home()).resolve()
 
     @property
     def root(self) -> str:
         return str(self._root)
 
+    def _resolve(self, path: str) -> Path:
+        """Resolve a path and refuse anything outside the configured root.
+
+        Out-of-root paths raise FileNotFoundError so callers return 404 without
+        revealing whether the path exists.
+        """
+        target = (Path(path) if path else self._root).resolve()
+        if target != self._root and self._root not in target.parents:
+            raise FileNotFoundError(f"Path not found: {path}")
+        return target
+
     def list_directory(self, path: str) -> list[FileEntry]:
-        target = Path(path) if path else self._root
+        target = self._resolve(path)
         if not target.is_dir():
             raise FileNotFoundError(f"Directory not found: {path}")
 
@@ -107,20 +118,25 @@ class LocalFilesystemBackend:
         return entries
 
     def read_file(self, path: str) -> bytes:
-        target = Path(path)
+        target = self._resolve(path)
         if not target.is_file():
             raise FileNotFoundError(f"File not found: {path}")
         return target.read_bytes()
 
     def file_exists(self, path: str) -> bool:
-        return Path(path).is_file()
+        try:
+            return self._resolve(path).is_file()
+        except FileNotFoundError:
+            return False
 
     def get_parent(self, path: str) -> str | None:
-        target = Path(path)
-        parent = target.parent
-        if parent == target:
+        try:
+            target = self._resolve(path)
+        except FileNotFoundError:
             return None
-        return str(parent)
+        if target == self._root:
+            return None
+        return str(target.parent)
 
 
 class S3StorageBackend:

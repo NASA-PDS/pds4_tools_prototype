@@ -1,5 +1,9 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import browse, images, labels, tables
 from app.services.storage import init_default_backends
@@ -29,3 +33,10 @@ init_default_backends()
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# Optionally serve the built frontend from the same origin (single-container deploys).
+# Mounted last so /api routes take precedence.
+_static_dir = os.environ.get("PDS_STATIC_DIR")
+if _static_dir and Path(_static_dir).is_dir():
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="frontend")

@@ -78,10 +78,21 @@ class TestBrowseList:
         subdir_entry = next(e for e in entries if e["name"] == "subdir")
         assert subdir_entry["is_dir"] is True
 
-    def test_has_parent_path(self, client: TestClient) -> None:
+    def test_root_has_no_parent(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
-        data = resp.json()
-        assert data["parent_path"] is not None
+        assert resp.json()["parent_path"] is None
+
+    def test_subdir_parent_is_root(self, client: TestClient, setup_local_backend: Path) -> None:
+        resp = client.get("/api/browse/list", params={"source": "local", "path": str(setup_local_backend / "subdir")})
+        assert resp.json()["parent_path"] == str(setup_local_backend.resolve())
+
+    def test_cannot_browse_outside_root(self, client: TestClient) -> None:
+        resp = client.get("/api/browse/list", params={"source": "local", "path": "/usr"})
+        assert resp.status_code == 404
+
+    def test_cannot_escape_root_with_dotdot(self, client: TestClient, setup_local_backend: Path) -> None:
+        resp = client.get("/api/browse/list", params={"source": "local", "path": str(setup_local_backend / "..")})
+        assert resp.status_code == 404
 
     def test_browse_subdirectory(self, client: TestClient, tmp_path: Path) -> None:
         subdir_path = str(tmp_path / "test_data" / "subdir")
@@ -136,6 +147,12 @@ class TestBrowseOpen:
         assert "label_id" in data
         assert data["filename"] == "test_label.xml"
 
+    def test_open_label_outside_root_rejected(self, client: TestClient, tmp_path: Path) -> None:
+        outside = tmp_path / "outside.xml"
+        outside.write_text("<Product_Observational/>")
+        resp = client.post("/api/browse/open", params={"source": "local", "path": str(outside)})
+        assert resp.status_code == 404
+
     def test_open_nonexistent_label(self, client: TestClient) -> None:
         resp = client.post("/api/browse/open", params={"source": "local", "path": "/nonexistent/label.xml"})
         assert resp.status_code == 404
@@ -161,7 +178,18 @@ class TestLocalFilesystemBackend:
         backend = LocalFilesystemBackend(root_path=str(tmp_path))
         assert backend.read_file(str(tmp_path / "data.bin")) == b"\x01\x02\x03"
 
-    def test_get_parent(self) -> None:
-        backend = LocalFilesystemBackend()
-        assert backend.get_parent("/home/user/data") == "/home/user"
+    def test_get_parent(self, tmp_path: Path) -> None:
+        (tmp_path / "a" / "b").mkdir(parents=True)
+        backend = LocalFilesystemBackend(root_path=str(tmp_path))
+        assert backend.get_parent(str(tmp_path / "a" / "b")) == str((tmp_path / "a").resolve())
+        assert backend.get_parent(str(tmp_path)) is None
         assert backend.get_parent("/") is None
+
+    def test_file_outside_root_not_readable(self, tmp_path: Path) -> None:
+        root = tmp_path / "root"
+        root.mkdir()
+        (tmp_path / "secret.txt").write_text("nope")
+        backend = LocalFilesystemBackend(root_path=str(root))
+        assert backend.file_exists(str(tmp_path / "secret.txt")) is False
+        with pytest.raises(FileNotFoundError):
+            backend.read_file(str(root / ".." / "secret.txt"))

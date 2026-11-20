@@ -5,8 +5,9 @@ structures described within (tables, images, arrays, etc.).
 """
 from __future__ import annotations
 
+import csv
+import io
 import os
-import struct
 from pathlib import Path
 from typing import Any
 
@@ -45,12 +46,30 @@ PDS4_TO_NUMPY_DTYPE: dict[str, str] = {
     "ASCII_Numeric_Base16": "U",
     "IEEE754MSBSingle": ">f4",
     "IEEE754MSBDouble": ">f8",
+    "IEEE754LSBSingle": "<f4",
+    "IEEE754LSBDouble": "<f8",
     "SignedMSB2": ">i2",
     "SignedMSB4": ">i4",
+    "SignedMSB8": ">i8",
     "UnsignedMSB2": ">u2",
     "UnsignedMSB4": ">u4",
+    "UnsignedMSB8": ">u8",
+    "SignedLSB2": "<i2",
+    "SignedLSB4": "<i4",
+    "SignedLSB8": "<i8",
+    "UnsignedLSB2": "<u2",
+    "UnsignedLSB4": "<u4",
+    "UnsignedLSB8": "<u8",
     "UnsignedByte": "u1",
     "SignedByte": "i1",
+}
+
+# Map PDS4 field_delimiter values to the actual character.
+FIELD_DELIMITERS: dict[str, str] = {
+    "comma": ",",
+    "horizontal tab": "\t",
+    "semicolon": ";",
+    "vertical bar": "|",
 }
 
 
@@ -141,6 +160,7 @@ def parse_label(xml_path: str | Path) -> dict[str, Any]:
 def _parse_table_structure(element: etree._Element, table_type: str) -> dict[str, Any]:
     """Extract table-specific metadata: fields, record count, record length."""
     record_count = _int(element, "pds:records")
+    field_delimiter = _text(element, "pds:field_delimiter")
 
     if table_type == "Table_Character":
         record_tag = "pds:Record_Character"
@@ -169,6 +189,7 @@ def _parse_table_structure(element: etree._Element, table_type: str) -> dict[str
         "record_length": record_length,
         "field_count": len(fields),
         "fields": fields,
+        "field_delimiter": field_delimiter,
     }
 
 
@@ -261,7 +282,8 @@ def read_table_data(
     elif table_type == "Table_Binary":
         return _read_binary_table(data_file, fields, file_offset, record_length, offset, end)
     else:
-        return _read_delimited_table(data_file, fields, file_offset, offset, end)
+        delimiter = FIELD_DELIMITERS.get((structure.get("field_delimiter") or "comma").lower(), ",")
+        return _read_delimited_table(data_file, fields, file_offset, offset, end, delimiter)
 
 
 def _read_character_table(
@@ -303,17 +325,6 @@ def _read_binary_table(
     end: int,
 ) -> list[list[Any]]:
     """Read binary table data."""
-    type_to_struct: dict[str, str] = {
-        "IEEE754MSBSingle": ">f",
-        "IEEE754MSBDouble": ">d",
-        "SignedMSB2": ">h",
-        "SignedMSB4": ">i",
-        "UnsignedMSB2": ">H",
-        "UnsignedMSB4": ">I",
-        "UnsignedByte": "B",
-        "SignedByte": "b",
-    }
-
     rows: list[list[Any]] = []
     with open(filepath, "rb") as f:
         f.seek(file_offset + start * record_length)
@@ -326,10 +337,15 @@ def _read_binary_table(
             for field in fields:
                 loc = (field.get("field_location") or 1) - 1
                 dt = field.get("data_type", "UnsignedByte")
-                fmt = type_to_struct.get(dt, "B")
-                size = struct.calcsize(fmt)
-                val = struct.unpack(fmt, record_bytes[loc : loc + size])[0]
-                row.append(float(val) if isinstance(val, (int, float)) else val)
+                np_type = PDS4_TO_NUMPY_DTYPE.get(dt)
+                if np_type is None or np_type == "U":
+                    # Character field embedded in a binary record
+                    length = field.get("field_length") or 0
+                    raw = record_bytes[loc : loc + length].decode("ascii", errors="replace").strip()
+                    row.append(_coerce_value(raw, dt))
+                    continue
+                val = np.frombuffer(record_bytes, dtype=np.dtype(np_type), count=1, offset=loc)[0]
+                row.append(val.item())
 
             rows.append(row)
 
@@ -342,21 +358,22 @@ def _read_delimited_table(
     file_offset: int,
     start: int,
     end: int,
+    delimiter: str = ",",
 ) -> list[list[Any]]:
-    """Read delimited (CSV-like) table data."""
+    """Read delimited table data, honoring the label's field_delimiter and quoting."""
     rows: list[list[Any]] = []
 
-    with open(filepath, "r", errors="replace") as f:
-        f.seek(file_offset)
-        for i, line in enumerate(f):
+    with open(filepath, "rb") as fb:
+        fb.seek(file_offset)
+        text = io.TextIOWrapper(fb, encoding="utf-8", errors="replace", newline="")
+        for i, values in enumerate(csv.reader(text, delimiter=delimiter)):
             if i < start:
                 continue
             if i >= end:
                 break
-            values = line.strip().split(",")
             row: list[Any] = []
             for j, field in enumerate(fields):
-                raw = values[j].strip().strip('"') if j < len(values) else ""
+                raw = values[j].strip() if j < len(values) else ""
                 row.append(_coerce_value(raw, field.get("data_type", "ASCII_String")))
             rows.append(row)
 
@@ -389,7 +406,9 @@ def read_array_data(structure: dict[str, Any]) -> np.ndarray:
     element_type = structure.get("element_data_type", "IEEE754MSBSingle")
     file_offset = structure.get("offset", 0)
 
-    numpy_dtype = PDS4_TO_NUMPY_DTYPE.get(element_type, ">f4")
+    numpy_dtype = PDS4_TO_NUMPY_DTYPE.get(element_type)
+    if numpy_dtype is None or numpy_dtype == "U":
+        raise ValueError(f"Unsupported array data_type: {element_type}")
     dt = np.dtype(numpy_dtype)
     total_elements = 1
     for d in dimensions:

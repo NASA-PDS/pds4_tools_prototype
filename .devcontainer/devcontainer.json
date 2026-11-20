@@ -1,0 +1,17 @@
+{
+  "name": "PDS4 Viewer",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "containerEnv": {
+    "PDS_LOCAL_ROOT": "${containerWorkspaceFolder}/test_data"
+  },
+  "postCreateCommand": "pip install -e './backend[dev]' && cd frontend && npm ci",
+  "postAttachCommand": "bash .devcontainer/start.sh",
+  "forwardPorts": [5173, 8000],
+  "portsAttributes": {
+    "5173": { "label": "PDS4 Viewer", "onAutoForward": "openBrowser" },
+    "8000": { "label": "API", "onAutoForward": "silent" }
+  }
+}

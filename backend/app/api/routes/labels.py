@@ -17,6 +17,14 @@ UPLOAD_DIR = Path(tempfile.gettempdir()) / "pds4_viewer_uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _safe_filename(name: str) -> str:
+    """Strip any directory components so uploads cannot escape the session dir."""
+    base = Path(name.replace("\\", "/")).name
+    if base in ("", ".", ".."):
+        raise HTTPException(status_code=400, detail=f"Invalid filename: {name!r}")
+    return base
+
+
 @router.post("/upload", response_model=LabelUploadResponse)
 async def upload_label(
     label_file: UploadFile,
@@ -35,16 +43,15 @@ async def upload_label(
     if suffix not in (".xml", ".lblx"):
         raise HTTPException(status_code=400, detail="Label file must be .xml or .lblx")
 
-    session_dir = UPLOAD_DIR / tempfile.mktemp(prefix="session_", dir="").lstrip("/")
-    session_dir.mkdir(parents=True, exist_ok=True)
+    session_dir = Path(tempfile.mkdtemp(prefix="session_", dir=UPLOAD_DIR))
 
-    label_path = session_dir / label_file.filename
+    label_path = session_dir / _safe_filename(label_file.filename)
     with open(label_path, "wb") as f:
         shutil.copyfileobj(label_file.file, f)
 
     for df in data_files:
         if df.filename:
-            data_path = session_dir / df.filename
+            data_path = session_dir / _safe_filename(df.filename)
             with open(data_path, "wb") as f:
                 shutil.copyfileobj(df.file, f)
 
