@@ -6,10 +6,12 @@ shared volume). Records and upload sessions expire after a period of inactivity.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -40,11 +42,17 @@ class LabelStore:
 
     def put(self, record: dict[str, Any]) -> str:
         label_id = uuid.uuid4().hex
-        path = self._path(label_id)
-        assert path is not None
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(record))
-        os.replace(tmp, path)  # atomic: readers never see a partial file
+        # The file name is a server-generated UUID; nothing from the request is used in it.
+        path = os.path.join(self.label_dir, f"{label_id}.json")
+        fd, tmp = tempfile.mkstemp(dir=self.label_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(record, f)
+            os.replace(tmp, path)  # atomic: readers never see a partial file
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
         self.maybe_cleanup()
         return label_id
 

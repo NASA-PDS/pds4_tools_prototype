@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -102,11 +103,20 @@ def to_markdown(m: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _workspace_path(value: str) -> Path:
+    """argparse type: a path that must resolve inside the current working directory."""
+    root = os.path.realpath(os.getcwd())
+    candidate = os.path.realpath(os.path.join(root, value))
+    if os.path.commonpath([root, candidate]) != root:
+        raise argparse.ArgumentTypeError(f"{value!r} is outside the working directory")
+    return Path(candidate)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("reports", nargs="+", type=Path)
-    ap.add_argument("--markdown", type=Path)
-    ap.add_argument("--json", type=Path)
+    ap.add_argument("reports", nargs="+", type=_workspace_path)
+    ap.add_argument("--markdown", type=_workspace_path)
+    ap.add_argument("--json", type=_workspace_path)
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
 

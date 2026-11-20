@@ -1,6 +1,7 @@
 """Label upload and metadata endpoints."""
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -17,12 +18,20 @@ router = APIRouter()
 UPLOAD_DIR = config.UPLOAD_DIR
 
 
-def _safe_filename(name: str) -> str:
-    """Strip any directory components so uploads cannot escape the session dir."""
-    base = Path(name.replace("\\", "/")).name
+def _session_path(session_dir: Path, name: str) -> Path:
+    """Return the path for an uploaded file inside the session dir.
+
+    Directory components are stripped, and the resolved path is checked to be
+    inside the session dir so an upload can never be written or read elsewhere.
+    """
+    base = os.path.basename(name.replace("\\", "/"))
     if base in ("", ".", ".."):
         raise HTTPException(status_code=400, detail=f"Invalid filename: {name!r}")
-    return base
+    root = os.path.realpath(session_dir)
+    candidate = os.path.realpath(os.path.join(root, base))
+    if os.path.commonpath([root, candidate]) != root:
+        raise HTTPException(status_code=400, detail=f"Invalid filename: {name!r}")
+    return Path(candidate)
 
 
 def _save_upload(upload: UploadFile, dest: Path) -> None:
@@ -67,14 +76,14 @@ def upload_label(
 
     session_dir = label_store.new_upload_session()
     try:
-        label_path = session_dir / _safe_filename(label_file.filename)
+        label_path = _session_path(session_dir, label_file.filename)
         _save_upload(label_file, label_path)
         for df in data_files:
             if df.filename:
-                _save_upload(df, session_dir / _safe_filename(df.filename))
+                _save_upload(df, _session_path(session_dir, df.filename))
 
         try:
-            parsed = parse_label(label_path, source=UPLOADS_BACKEND)
+            parsed = parse_label(label_path, content=label_path.read_bytes(), source=UPLOADS_BACKEND)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Failed to parse label: {e}")
     except HTTPException:

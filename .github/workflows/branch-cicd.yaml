@@ -25,7 +25,7 @@ jobs:
       - name: Install backend dependencies
         run: |
           cd backend
-          pip install -e ".[dev]"
+          pip install --only-binary :all: -e ".[dev]"
 
       - name: Lint backend
         run: |
@@ -61,7 +61,7 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd frontend
-          npm ci
+          npm ci --ignore-scripts
 
       - name: Lint frontend
         run: |
@@ -108,16 +108,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ./backend
+          pip install --only-binary :all: -e ./backend
           cd frontend
-          npm ci
-          npx playwright install --with-deps chromium
+          npm ci --ignore-scripts
+          npm run e2e:install
 
       # Playwright starts the backend (PDS_LOCAL_ROOT=test_data) and the Vite dev server itself.
       - name: Run Playwright
         run: |
           cd frontend
-          npx playwright test
+          npm run test:e2e
 
       - name: Upload JUnit report
         if: always()

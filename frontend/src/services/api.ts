@@ -1,5 +1,24 @@
 const API_BASE = "/api";
 
+const LABEL_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/** Validated, URL-encoded label id for use as a path segment. */
+function labelSeg(labelId: string): string {
+  if (!LABEL_ID_RE.test(labelId)) throw new Error(`Invalid label id: ${labelId}`);
+  return encodeURIComponent(labelId);
+}
+
+/** Validated non-negative integer for use as a path segment or query value. */
+function intSeg(value: number, name: string): string {
+  if (!Number.isInteger(value) || value < 0) throw new Error(`Invalid ${name}: ${value}`);
+  return String(value);
+}
+
+/** Validated `<labelId>/<structureIndex>` path. */
+function structureSeg(labelId: string, structureIndex: number): string {
+  return `${labelSeg(labelId)}/${intSeg(structureIndex, "structure index")}`;
+}
+
 /* ---- Browse / Storage Backend types ---- */
 
 export interface StorageSource {
@@ -199,7 +218,7 @@ export async function getLabels(): Promise<
 export async function getLabelDetail(
   labelId: string,
 ): Promise<LabelMetadata> {
-  const resp = await fetch(`${API_BASE}/labels/${labelId}`);
+  const resp = await fetch(`${API_BASE}/labels/${labelSeg(labelId)}`);
   if (!resp.ok) throw new Error("Failed to fetch label");
   return resp.json();
 }
@@ -207,7 +226,7 @@ export async function getLabelDetail(
 export async function getStructures(
   labelId: string,
 ): Promise<StructureSummary[]> {
-  const resp = await fetch(`${API_BASE}/labels/${labelId}/structures`);
+  const resp = await fetch(`${API_BASE}/labels/${labelSeg(labelId)}/structures`);
   if (!resp.ok) throw new Error("Failed to fetch structures");
   return resp.json();
 }
@@ -217,10 +236,15 @@ export async function getTableMetadata(
   structureIndex: number,
 ): Promise<TableMetadata> {
   const resp = await fetch(
-    `${API_BASE}/tables/${labelId}/${structureIndex}`,
+    `${API_BASE}/tables/${structureSeg(labelId, structureIndex)}`,
   );
   if (!resp.ok) throw new Error("Failed to fetch table metadata");
   return resp.json();
+}
+
+/** URL for the streamed CSV export of a table structure. */
+export function tableCsvUrl(labelId: string, structureIndex: number): string {
+  return `${API_BASE}/tables/${structureSeg(labelId, structureIndex)}/data?format=csv`;
 }
 
 export async function getTableData(
@@ -230,7 +254,7 @@ export async function getTableData(
   limit = 100,
 ): Promise<TableDataResponse> {
   const resp = await fetch(
-    `${API_BASE}/tables/${labelId}/${structureIndex}/data?offset=${offset}&limit=${limit}`,
+    `${API_BASE}/tables/${structureSeg(labelId, structureIndex)}/data?offset=${intSeg(offset, "offset")}&limit=${intSeg(limit, "limit")}`,
   );
   if (!resp.ok) throw new Error("Failed to fetch table data");
   return resp.json();
@@ -242,7 +266,7 @@ export async function getPlotData(
   spec: PlotSpec,
 ): Promise<PlotDataResponse> {
   const resp = await fetch(
-    `${API_BASE}/tables/${labelId}/${structureIndex}/plot`,
+    `${API_BASE}/tables/${structureSeg(labelId, structureIndex)}/plot`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -261,7 +285,7 @@ export async function getImageMetadata(
   structureIndex: number,
 ): Promise<ImageMetadata> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}`,
+    `${API_BASE}/images/${structureSeg(labelId, structureIndex)}`,
   );
   if (!resp.ok) throw new Error("Failed to fetch image metadata");
   return resp.json();
@@ -273,7 +297,7 @@ export async function getImageStatistics(
   band = 0,
 ): Promise<ImageStatistics> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}/statistics?band=${band}`,
+    `${API_BASE}/images/${structureSeg(labelId, structureIndex)}/statistics?band=${intSeg(band, "band")}`,
   );
   if (!resp.ok) throw new Error("Failed to fetch image statistics");
   return resp.json();
@@ -285,7 +309,7 @@ export async function renderImage(
   params: ImageRenderParams,
 ): Promise<Blob> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}/render`,
+    `${API_BASE}/images/${structureSeg(labelId, structureIndex)}/render`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -314,7 +338,7 @@ export async function getPixelValue(
   band = 0,
 ): Promise<PixelValue> {
   const params = new URLSearchParams({ x: String(x), y: String(y), band: String(band) });
-  const resp = await fetch(`${API_BASE}/images/${labelId}/${structureIndex}/pixel?${params}`);
+  const resp = await fetch(`${API_BASE}/images/${structureSeg(labelId, structureIndex)}/pixel?${params}`);
   if (!resp.ok) throw new Error("Failed to fetch pixel value");
   return resp.json();
 }
