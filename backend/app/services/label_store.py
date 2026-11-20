@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
-CLEANUP_INTERVAL_SECONDS = 600
+CLEANUP_INTERVAL_SECONDS = 600  # used by the scheduled cleanup task in app.main
 _MEMO_SIZE = 64
 
 
@@ -31,7 +31,6 @@ class LabelStore:
         self.ttl_seconds = ttl_seconds
         self._lock = threading.Lock()
         self._memo: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
-        self._last_cleanup = 0.0
         self.label_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,7 +52,6 @@ class LabelStore:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(tmp)
             raise
-        self.maybe_cleanup()
         return label_id
 
     def get(self, label_id: str) -> dict[str, Any] | None:
@@ -111,13 +109,6 @@ class LabelStore:
         session = self.upload_dir / f"session_{uuid.uuid4().hex}"
         session.mkdir(parents=True)
         return session
-
-    def maybe_cleanup(self) -> None:
-        now = time.time()
-        if now - self._last_cleanup < CLEANUP_INTERVAL_SECONDS:
-            return
-        self._last_cleanup = now
-        threading.Thread(target=self.cleanup, daemon=True).start()
 
     def cleanup(self, now: float | None = None) -> int:
         """Delete expired label records and upload sessions. Returns the number removed."""
