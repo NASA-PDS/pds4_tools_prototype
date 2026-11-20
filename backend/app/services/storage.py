@@ -253,8 +253,12 @@ class S3StorageBackend:
         return self._get(path, f"bytes={offset}-{offset + length - 1}")["Body"].read()
 
     def open_stream(self, path: str, offset: int = 0) -> IO[bytes]:
-        body = self._get(path, f"bytes={offset}-" if offset else None)["Body"]
-        return _ReadableStream(body)
+        """Sequential reader made of bounded ranged GETs (STREAM_CHUNK_BYTES each).
+
+        Nothing past the last chunk the caller actually consumes is requested.
+        """
+        self._normalize_key(path)  # fail fast on paths outside the prefix
+        return io.BufferedReader(_RangedChunkReader(self, path, offset), buffer_size=STREAM_CHUNK_BYTES)
 
     def file_exists(self, path: str) -> bool:
         from botocore.exceptions import ClientError
@@ -283,26 +287,31 @@ class S3StorageBackend:
         return directory.rstrip("/") + "/" + name
 
 
-class _ReadableStream(io.RawIOBase):
-    """Adapt a botocore StreamingBody to a standard readable binary stream."""
+STREAM_CHUNK_BYTES = 1024 * 1024
 
-    def __init__(self, body: object) -> None:
-        self._body = body
+
+class _RangedChunkReader(io.RawIOBase):
+    """Raw stream that fetches an S3 object in bounded `bytes=a-b` ranges on demand."""
+
+    def __init__(self, backend: S3StorageBackend, path: str, offset: int) -> None:
+        self._backend = backend
+        self._path = path
+        self._pos = offset
+        self._buf = b""
+        self._eof = False
 
     def readable(self) -> bool:
         return True
 
     def readinto(self, b: bytearray) -> int:  # type: ignore[override]
-        data = self._body.read(len(b))  # type: ignore[attr-defined]
-        n = len(data)
-        b[:n] = data
+        if not self._buf and not self._eof:
+            self._buf = self._backend.read_range(self._path, self._pos, STREAM_CHUNK_BYTES)
+            self._pos += len(self._buf)
+            self._eof = len(self._buf) < STREAM_CHUNK_BYTES
+        n = min(len(b), len(self._buf))
+        b[:n] = self._buf[:n]
+        self._buf = self._buf[n:]
         return n
-
-    def close(self) -> None:
-        try:
-            self._body.close()  # type: ignore[attr-defined]
-        finally:
-            super().close()
 
 
 # ---------------------------------------------------------------------------

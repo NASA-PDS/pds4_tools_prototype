@@ -160,3 +160,19 @@ def test_trace_matrix_does_not_pass_skipped_tests() -> None:
     m = tm.build(catalog, results)
     assert m["items"]["REQ-A"]["status"] == "SKIPPED"
     assert m["items"]["REQ-B"]["status"] == "PASS"
+
+
+@pytest.mark.req("REQ-13", "REQ-04")
+def test_s3_delimited_paging_uses_bounded_ranges(s3, monkeypatch) -> None:  # noqa: F811
+    from app.services import storage
+
+    backend, spy, client = s3
+    monkeypatch.setattr(storage, "STREAM_CHUNK_BYTES", 64)
+    body = b"".join(f"{i},{i}.5\r\n".encode() for i in range(200))
+    client.put_object(Bucket=BUCKET, Key="archive/t/t.csv", Body=body)
+    with backend.open_stream(f"s3://{BUCKET}/archive/t/t.csv") as stream:
+        first = [stream.readline() for _ in range(3)]
+    assert first == [b"0,0.5\r\n", b"1,1.5\r\n", b"2,2.5\r\n"]
+    ranges = [c.get("Range") for c in spy.get_calls]
+    assert ranges and all(r and not r.endswith("-") for r in ranges)
+    assert len(ranges) < len(body) // 64  # stopped early, did not read the whole object
