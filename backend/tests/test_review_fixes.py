@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.services import label_parser
-from app.services.label_parser import iter_table_rows, parse_label, read_table_data
+from app.services.label_parser import iter_table_rows, parse_label_file, read_table_data
 from app.services.label_store import LabelStore
 
 from .test_s3_backend import BUCKET, s3  # noqa: F401  (fixture)
@@ -30,7 +30,7 @@ def _delimited(tmp_path: Path, n: int) -> dict:
 <Field_Delimited><name>a</name><field_number>1</field_number><data_type>ASCII_Integer</data_type></Field_Delimited>
 <Field_Delimited><name>b</name><field_number>2</field_number><data_type>ASCII_Real</data_type></Field_Delimited>
 </Record_Delimited></Table_Delimited></File_Area_Observational></Product_Observational>""")
-    return parse_label(tmp_path / "t.xml")["structures"][0]
+    return parse_label_file(tmp_path / "t.xml")["structures"][0]
 
 
 class _CountingBackend:

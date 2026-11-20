@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from app.api.routes.labels import UPLOAD_DIR
-from app.services.label_parser import parse_label, read_array_data, read_table_data
+from app.services.label_parser import parse_label_file, read_array_data, read_table_data
 
 NS = 'xmlns="http://pds.nasa.gov/pds4/pds/v1"'
 
@@ -38,7 +38,7 @@ def _array_label(data_type: str) -> str:
 def test_array_byte_order(tmp_path: Path, data_type: str, np_dtype: str) -> None:
     np.arange(6, dtype=np_dtype).tofile(tmp_path / "a.img")
     (tmp_path / "a.xml").write_text(_array_label(data_type))
-    data = read_array_data(parse_label(tmp_path / "a.xml")["structures"][0])
+    data = read_array_data(parse_label_file(tmp_path / "a.xml")["structures"][0])
     assert data.shape == (2, 3)
     assert data.ravel().tolist() == [0, 1, 2, 3, 4, 5]
 
@@ -48,7 +48,7 @@ def test_unknown_array_type_fails_loudly(tmp_path: Path) -> None:
     (tmp_path / "a.img").write_bytes(b"\x00" * 64)
     (tmp_path / "a.xml").write_text(_array_label("ComplexLSB16"))
     with pytest.raises(ValueError, match="Unsupported"):
-        read_array_data(parse_label(tmp_path / "a.xml")["structures"][0])
+        read_array_data(parse_label_file(tmp_path / "a.xml")["structures"][0])
 
 
 def _delimited_label(delimiter: str) -> str:
@@ -68,7 +68,7 @@ def _delimited_label(delimiter: str) -> str:
 def test_delimited_honors_field_delimiter(tmp_path: Path, name: str, char: str) -> None:
     (tmp_path / "t.tab").write_bytes(f"1{char}2.5{char}x\r\n3{char}4.5{char}y\r\n".encode())
     (tmp_path / "t.xml").write_text(_delimited_label(name))
-    rows = read_table_data(parse_label(tmp_path / "t.xml")["structures"][0])
+    rows = read_table_data(parse_label_file(tmp_path / "t.xml")["structures"][0])
     assert rows == [[1, 2.5, "x"], [3, 4.5, "y"]]
 
 
@@ -76,7 +76,7 @@ def test_delimited_honors_field_delimiter(tmp_path: Path, name: str, char: str) 
 def test_delimited_quoted_comma(tmp_path: Path) -> None:
     (tmp_path / "t.tab").write_bytes(b'1,2.5,"hello, mars"\r\n')
     (tmp_path / "t.xml").write_text(_delimited_label("Comma").replace("<records>2", "<records>1"))
-    rows = read_table_data(parse_label(tmp_path / "t.xml")["structures"][0])
+    rows = read_table_data(parse_label_file(tmp_path / "t.xml")["structures"][0])
     assert rows == [[1, 2.5, "hello, mars"]]
 
 
@@ -95,7 +95,7 @@ def test_binary_table_lsb_and_char_fields(tmp_path: Path) -> None:
 <Field_Binary><name>s</name><field_number>3</field_number><field_location unit="byte">11</field_location>
 <data_type>ASCII_String</data_type><field_length unit="byte">2</field_length></Field_Binary>
 </Record_Binary></Table_Binary></File_Area_Observational></Product_Observational>""")
-    rows = read_table_data(parse_label(tmp_path / "b.xml")["structures"][0])
+    rows = read_table_data(parse_label_file(tmp_path / "b.xml")["structures"][0])
     assert rows == [[7, 1.5, "AB"], [7, 1.5, "AB"]]
 
 

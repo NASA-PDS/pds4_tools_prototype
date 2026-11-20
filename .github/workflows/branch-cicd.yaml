@@ -25,7 +25,8 @@ jobs:
       - name: Install backend dependencies
         run: |
           cd backend
-          pip install --only-binary :all: -e ".[dev]"
+          pip install --only-binary :all: --require-hashes -r requirements-dev.lock
+          pip install --no-deps --no-build-isolation -e .
 
       - name: Lint backend
         run: |
@@ -108,7 +109,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --only-binary :all: -e ./backend
+          pip install --only-binary :all: --require-hashes -r backend/requirements.lock
+          pip install --no-deps --no-build-isolation -e ./backend
           cd frontend
           npm ci --ignore-scripts
           npm run e2e:install
@@ -173,8 +175,7 @@ jobs:
 
       - name: Build traceability matrix
         run: |
-          python traceability/trace_matrix.py reports/*.xml \
-            --markdown trace-matrix.md --json trace-matrix.json --strict
+          python traceability/trace_matrix.py --strict > /dev/null
           cat trace-matrix.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload traceability matrix and reports

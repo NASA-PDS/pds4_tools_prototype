@@ -5,10 +5,12 @@ Reads JUnit files from pytest (--junitxml), Vitest and Playwright. Keys are foun
   * <property name="requirement|bug" value="REQ-04"/>   (pytest, Playwright annotations)
   * test names containing "[REQ-04]" or "@REQ-04"        (Vitest, Playwright tags)
 
-Usage:
-  python traceability/trace_matrix.py backend/test-results/junit-backend.xml \\
-      frontend/test-results/junit-unit.xml frontend/test-results/junit-e2e.xml \\
-      --markdown trace-matrix.md --json trace-matrix.json [--strict]
+Usage (from anywhere; paths are fixed relative to the repository root):
+  python traceability/trace_matrix.py [--strict]
+
+Reports are read from backend/test-results/, frontend/test-results/ and reports/
+(*.xml). The matrix is written to trace-matrix.md and trace-matrix.json in the
+repository root, and the Markdown is also printed.
 
 --strict exits non-zero if any requirement/bug has no test or any traced test failed.
 Standard library only.
@@ -17,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -114,31 +115,29 @@ def to_markdown(m: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _workspace_path(value: str) -> Path:
-    """argparse type: a path that must resolve inside the current working directory."""
-    root = os.path.realpath(os.getcwd())
-    candidate = os.path.realpath(os.path.join(root, value))
-    if os.path.commonpath([root, candidate]) != root:
-        raise argparse.ArgumentTypeError(f"{value!r} is outside the working directory")
-    return Path(candidate)
+REPO_ROOT = HERE.parent
+REPORT_DIRS = ("backend/test-results", "frontend/test-results", "reports")
+MARKDOWN_OUT = REPO_ROOT / "trace-matrix.md"
+JSON_OUT = REPO_ROOT / "trace-matrix.json"
+
+
+def find_reports() -> list[Path]:
+    return sorted(p for d in REPORT_DIRS for p in (REPO_ROOT / d).glob("*.xml"))
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("reports", nargs="+", type=_workspace_path)
-    ap.add_argument("--markdown", type=_workspace_path)
-    ap.add_argument("--json", type=_workspace_path)
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
 
-    m = build(load_catalog(), parse_reports(args.reports))
+    reports = find_reports()
+    if not reports:
+        print(f"warning: no JUnit reports found under {', '.join(REPORT_DIRS)}", file=sys.stderr)
+    m = build(load_catalog(), parse_reports(reports))
     md = to_markdown(m)
-    if args.markdown:
-        args.markdown.write_text(md)
-    if args.json:
-        args.json.write_text(json.dumps(m, indent=2))
-    if not args.markdown:
-        print(md)
+    MARKDOWN_OUT.write_text(md)
+    JSON_OUT.write_text(json.dumps(m, indent=2))
+    print(md)
 
     if args.strict:
         bad = [k for k, r in m["items"].items() if r["status"] != "PASS"]

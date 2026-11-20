@@ -57,10 +57,11 @@ in `traceability.json` (see below).
 ### Traceability matrix
 
 ```bash
-python traceability/trace_matrix.py backend/test-results/junit-backend.xml \
-  frontend/test-results/junit-unit.xml frontend/test-results/junit-e2e.xml \
-  --markdown trace-matrix.md --json trace-matrix.json --strict
+python traceability/trace_matrix.py --strict
 ```
+
+It reads every `*.xml` JUnit report in `backend/test-results/`, `frontend/test-results/`
+and `reports/`, and writes `trace-matrix.md` and `trace-matrix.json` to the repository root.
 
 CI runs this after all test jobs. It posts the matrix to the workflow run summary and
 uploads `trace-matrix.md`, `trace-matrix.json`, and the JUnit files as the

@@ -10,7 +10,8 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 COPY backend/ /app/backend/
-RUN pip install --no-cache-dir --only-binary :all: "/app/backend[s3]"
+RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r /app/backend/requirements.lock \
+    && pip install --no-cache-dir --no-deps --no-build-isolation /app/backend
 COPY --from=frontend /src/frontend/dist /app/static
 COPY test_data/ /data/
 ENV PDS_STATIC_DIR=/app/static \

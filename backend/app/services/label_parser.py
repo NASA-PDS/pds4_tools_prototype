@@ -167,22 +167,29 @@ def _special_constants(element: etree._Element) -> list[str]:
 # Label parsing
 # ---------------------------------------------------------------------------
 
+def parse_label_file(xml_path: str | Path, source: str | None = None) -> dict[str, Any]:
+    """Read a label from local disk and parse it (library and test use).
+
+    The API never calls this: it reads labels through a storage backend, which
+    confines paths to the configured roots, and passes the bytes to parse_label.
+    """
+    return parse_label(xml_path, Path(xml_path).read_bytes(), source=source)
+
+
 def parse_label(
     xml_path: str | Path,
-    content: bytes | None = None,
+    content: bytes,
     source: str | None = None,
 ) -> dict[str, Any]:
     """Parse a PDS4 XML label and return metadata about its structures.
 
     Args:
         xml_path: Path (or URI) of the label. Data files are resolved next to it.
-        content: Label bytes, if already read; otherwise read from `xml_path` on local disk.
+        content: Label bytes, already read through a storage backend (or parse_label_file).
         source: Name of the storage backend data files should be read from. None means
             unrestricted local disk (library/test use only; the API always passes one).
     """
     xml_path = str(xml_path)
-    if content is None:
-        content = Path(xml_path).read_bytes()
     root = etree.fromstring(content, _XML_PARSER)
 
     structures: list[dict[str, Any]] = []
@@ -565,20 +572,30 @@ def _coerce_value(raw: str, data_type: str) -> int | float | str | None:
 
 # ---- Arrays ---------------------------------------------------------------
 
+def _band_axis(structure: dict[str, Any], ndim: int) -> int:
+    """Index of the band axis, validated against the number of dimensions."""
+    axis = structure.get("band_axis") or 0
+    if not 0 <= axis < ndim:
+        raise ValueError(f"Invalid band_axis {axis} for a {ndim}D array")
+    return axis
+
+
 def array_plane_shape(structure: dict[str, Any]) -> tuple[int, int]:
     """(height, width) of the 2D plane displayed for an array (band axis removed)."""
     dims = list(structure.get("dimensions") or [])
     if len(dims) == 3:
-        dims.pop(structure.get("band_axis") or 0)
+        dims.pop(_band_axis(structure, 3))
     if len(dims) >= 2:
         return dims[0], dims[1]
-    return 1, dims[0] if dims else 0
+    if not dims:
+        return 1, 0
+    return 1, dims[0]
 
 
 def array_band_count(structure: dict[str, Any]) -> int:
     dims = structure.get("dimensions") or []
     if len(dims) == 3:
-        return dims[structure.get("band_axis") or 0]
+        return dims[_band_axis(structure, 3)]
     return 1
 
 
@@ -602,7 +619,7 @@ def read_array_data(structure: dict[str, Any], band: int | None = None) -> np.nd
     file_offset = structure.get("offset", 0)
 
     if len(dims) == 3:
-        band_axis = structure.get("band_axis") or 0
+        band_axis = _band_axis(structure, len(dims))
         b = band or 0
         if not 0 <= b < dims[band_axis]:
             raise IndexError(f"Band {b} out of range (0-{dims[band_axis] - 1})")

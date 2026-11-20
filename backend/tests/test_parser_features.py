@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.services.label_parser import array_plane_shape, parse_label, read_array_data, read_table_data
+from app.services.label_parser import array_plane_shape, parse_label_file, read_array_data, read_table_data
 
 NS = 'xmlns="http://pds.nasa.gov/pds4/pds/v1"'
 
@@ -33,7 +33,7 @@ def test_repeated_group_fields_read_at_group_offsets(tmp_path: Path) -> None:
 <Field_Character><name>v</name><field_number>1</field_number><field_location unit="byte">1</field_location>
 <data_type>ASCII_Integer</data_type><field_length unit="byte">3</field_length></Field_Character>
 </Group_Field_Character></Record_Character></Table_Character>""", records)
-    s = parse_label(label)["structures"][0]
+    s = parse_label_file(label)["structures"][0]
     assert [f["name"] for f in s["fields"]] == ["id", "group_1_v", "group_2_v", "group_3_v"]
     assert read_table_data(s) == [[1, 100, 200, 300], [2, 400, 500, 600]]
 
@@ -49,7 +49,7 @@ def test_array_scaling_and_special_constants(tmp_path: Path) -> None:
 <Axis_Array><axis_name>Sample</axis_name><elements>2</elements><sequence_number>2</sequence_number></Axis_Array>
 <Special_Constants><missing_constant>-32768</missing_constant></Special_Constants>
 </Array_2D_Image>""", raw.tobytes())
-    data = read_array_data(parse_label(label)["structures"][0])
+    data = read_array_data(parse_label_file(label)["structures"][0])
     assert data[0, 0] == 10.5 and data[0, 1] == 11.0 and data[1, 1] == 12.0
     assert np.isnan(data[1, 0])
 
@@ -64,7 +64,7 @@ def test_radix_special_constant_for_float_array(tmp_path: Path) -> None:
 <Axis_Array><axis_name>Sample</axis_name><elements>2</elements><sequence_number>2</sequence_number></Axis_Array>
 <Special_Constants><invalid_constant>16#FF7FFFFB#</invalid_constant></Special_Constants>
 </Array_2D_Image>""", raw.tobytes())
-    data = read_array_data(parse_label(label)["structures"][0])
+    data = read_array_data(parse_label_file(label)["structures"][0])
     assert data[0, 0] == 1.5 and np.isnan(data[0, 1])
 
 
@@ -75,7 +75,7 @@ def test_table_field_scaling_and_missing_constant(tmp_path: Path) -> None:
 <Field_Delimited><name>t</name><field_number>1</field_number><data_type>ASCII_Real</data_type>
 <scaling_factor>2</scaling_factor><Special_Constants><missing_constant>-999</missing_constant></Special_Constants>
 </Field_Delimited></Record_Delimited></Table_Delimited>""", b"1.5\r\n-999\r\n")
-    assert read_table_data(parse_label(label)["structures"][0]) == [[3.0], [None]]
+    assert read_table_data(parse_label_file(label)["structures"][0]) == [[3.0], [None]]
 
 
 @pytest.mark.req("REQ-07", "BUG-07")
@@ -93,7 +93,7 @@ def test_3d_band_selection_by_axis_name(tmp_path: Path, band_axis_pos: int) -> N
     )
     label = _write(tmp_path, f"""<Array_3D_Spectrum><offset unit="byte">0</offset><axes>3</axes>
 <Element_Array><data_type>UnsignedByte</data_type></Element_Array>{axes}</Array_3D_Spectrum>""", cube.tobytes())
-    s = parse_label(label)["structures"][0]
+    s = parse_label_file(label)["structures"][0]
     assert s["band_axis"] == band_axis_pos
     assert array_plane_shape(s) == (2, 3)
     np.testing.assert_array_equal(read_array_data(s, band=3), np.take(cube, 3, axis=band_axis_pos))
@@ -109,7 +109,7 @@ def test_short_data_file_is_reported(tmp_path: Path) -> None:
 <Axis_Array><axis_name>Sample</axis_name><elements>10</elements><sequence_number>2</sequence_number></Axis_Array>
 </Array_2D_Image>""", b"\x00" * 50)
     with pytest.raises(ValueError, match="shorter"):
-        read_array_data(parse_label(label)["structures"][0])
+        read_array_data(parse_label_file(label)["structures"][0])
 
 
 @pytest.mark.req("REQ-14")
@@ -119,5 +119,5 @@ def test_xml_external_entities_not_resolved(tmp_path: Path) -> None:
     label = tmp_path / "x.xml"
     label.write_text(f"""<?xml version="1.0"?><!DOCTYPE r [<!ENTITY s SYSTEM "file://{secret}">]>
 <Product_Observational {NS}><Identification_Area><title>&s;</title></Identification_Area></Product_Observational>""")
-    parsed = parse_label(label)
+    parsed = parse_label_file(label)
     assert "TOP-SECRET" not in str(parsed["xml_tree"])

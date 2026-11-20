@@ -32,6 +32,15 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
 ```
 
+CI, Docker and the devcontainer install from the hashed lock files `requirements.lock`
+(runtime + S3) and `requirements-dev.lock` (adds dev tools). After changing dependencies
+in `pyproject.toml`, regenerate them from `backend/`:
+
+```bash
+uv pip compile pyproject.toml build-reqs.in --extra s3 --universal --python-version 3.11 --generate-hashes -o requirements.lock
+uv pip compile pyproject.toml build-reqs.in --extra s3 --extra dev --universal --python-version 3.11 --generate-hashes -o requirements-dev.lock
+```
+
 ### Frontend
 
 ```bash

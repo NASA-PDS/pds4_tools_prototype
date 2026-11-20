@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -16,6 +17,7 @@ from app.services.storage import UPLOADS_BACKEND
 router = APIRouter()
 
 UPLOAD_DIR = config.UPLOAD_DIR
+LABEL_SUFFIXES = {".xml": ".xml", ".lblx": ".lblx"}
 
 
 def _session_path(session_dir: Path, name: str) -> Path:
@@ -71,12 +73,15 @@ def upload_label(
     """
     if not label_file.filename:
         raise HTTPException(status_code=400, detail="No label file provided")
-    if Path(label_file.filename).suffix.lower() not in (".xml", ".lblx"):
+    suffix = LABEL_SUFFIXES.get(Path(label_file.filename).suffix.lower())
+    if suffix is None:
         raise HTTPException(status_code=400, detail="Label file must be .xml or .lblx")
 
     session_dir = label_store.new_upload_session()
     try:
-        label_path = _session_path(session_dir, label_file.filename)
+        # The label is stored under a server-generated name; only data files keep the
+        # names the label refers to them by.
+        label_path = session_dir / f"_label_{uuid.uuid4().hex}{suffix}"
         _save_upload(label_file, label_path)
         for df in data_files:
             if df.filename:
@@ -91,6 +96,7 @@ def upload_label(
         raise
 
     parsed["upload_session"] = session_dir.name
+    parsed["filename"] = os.path.basename(label_file.filename.replace("\\", "/"))
     label_id = store_label(parsed)
     return LabelUploadResponse(label_id=label_id, filename=parsed["filename"], structures=summarize(parsed))
 
@@ -108,6 +114,6 @@ def get_label_detail(label_id: str, label: Label) -> LabelMetadata:
 
 
 @router.get("/{label_id}/structures", response_model=list[StructureSummary])
-def get_structures(label: Label) -> list[StructureSummary]:
+def get_structures(label_id: str, label: Label) -> list[StructureSummary]:
     """List all data structures in a label."""
     return summarize(label)
