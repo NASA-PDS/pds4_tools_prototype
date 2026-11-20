@@ -34,6 +34,7 @@ def _array_label(data_type: str) -> str:
         ("SignedMSB4", ">i4"),
     ],
 )
+@pytest.mark.req("REQ-11", "BUG-03")
 def test_array_byte_order(tmp_path: Path, data_type: str, np_dtype: str) -> None:
     np.arange(6, dtype=np_dtype).tofile(tmp_path / "a.img")
     (tmp_path / "a.xml").write_text(_array_label(data_type))
@@ -42,6 +43,7 @@ def test_array_byte_order(tmp_path: Path, data_type: str, np_dtype: str) -> None
     assert data.ravel().tolist() == [0, 1, 2, 3, 4, 5]
 
 
+@pytest.mark.req("REQ-11", "BUG-03")
 def test_unknown_array_type_fails_loudly(tmp_path: Path) -> None:
     (tmp_path / "a.img").write_bytes(b"\x00" * 64)
     (tmp_path / "a.xml").write_text(_array_label("ComplexLSB16"))
@@ -61,6 +63,7 @@ def _delimited_label(delimiter: str) -> str:
 </Record_Delimited></Table_Delimited></File_Area_Observational></Product_Observational>"""
 
 
+@pytest.mark.req("REQ-04", "BUG-04")
 @pytest.mark.parametrize("name,char", [("Horizontal Tab", "\t"), ("Semicolon", ";"), ("Vertical Bar", "|")])
 def test_delimited_honors_field_delimiter(tmp_path: Path, name: str, char: str) -> None:
     (tmp_path / "t.tab").write_bytes(f"1{char}2.5{char}x\r\n3{char}4.5{char}y\r\n".encode())
@@ -69,6 +72,7 @@ def test_delimited_honors_field_delimiter(tmp_path: Path, name: str, char: str) 
     assert rows == [[1, 2.5, "x"], [3, 4.5, "y"]]
 
 
+@pytest.mark.req("REQ-04", "BUG-04")
 def test_delimited_quoted_comma(tmp_path: Path) -> None:
     (tmp_path / "t.tab").write_bytes(b'1,2.5,"hello, mars"\r\n')
     (tmp_path / "t.xml").write_text(_delimited_label("Comma").replace("<records>2", "<records>1"))
@@ -76,6 +80,7 @@ def test_delimited_quoted_comma(tmp_path: Path) -> None:
     assert rows == [[1, 2.5, "hello, mars"]]
 
 
+@pytest.mark.req("REQ-04", "REQ-11", "BUG-03")
 def test_binary_table_lsb_and_char_fields(tmp_path: Path) -> None:
     rec = np.array([7], "<i2").tobytes() + np.array([1.5], "<f8").tobytes() + b"AB"
     (tmp_path / "b.dat").write_bytes(rec * 2)
@@ -94,6 +99,7 @@ def test_binary_table_lsb_and_char_fields(tmp_path: Path) -> None:
     assert rows == [[7, 1.5, "AB"], [7, 1.5, "AB"]]
 
 
+@pytest.mark.req("REQ-14", "BUG-01")
 @pytest.mark.parametrize("evil", ["../../../../tmp/pds4_pwned.txt", "/tmp/pds4_pwned.txt", "..\\..\\pds4_pwned.txt"])
 def test_upload_filename_cannot_escape_session_dir(client, table_character_xml, evil: str) -> None:
     target = Path("/tmp/pds4_pwned.txt")

@@ -1,0 +1,262 @@
+{
+  "repository": "NASA-PDS/pds4_tools_prototype",
+  "parent": "THEME-01",
+  "items": {
+    "THEME-01": {
+      "type": "theme",
+      "title": "PDS4 Viewer: browser-based quick-look of PDS4 products in place (S3, local, registry-ready)",
+      "description": "Prototype web application to find, inspect, and visualize PDS4 products where they live (node S3 buckets or local storage) without downloading data or installing tools. Parent for the requirements, bugs and tasks implemented in the initial prototype.",
+      "issue": null
+    },
+    "REQ-01": {
+      "type": "requirement",
+      "title": "As a data user, I want to upload a PDS4 label and its data files so that I can quick-look a product without installing PDS tools",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can inspect any PDS4 product from a browser in seconds.",
+      "details": "- Accept `.xml` / `.lblx` labels plus referenced data files in one upload\n- Match data files to `<File><file_name>` entries by name\n- Reject non-label files with a clear error",
+      "issue": null
+    },
+    "REQ-02": {
+      "type": "requirement",
+      "title": "As a data user, I want to browse configured storage sources and open a label in place so that I can view archived products without downloading them",
+      "persona": "Data User (scientist, data engineer); Node Operator / Data Provider",
+      "motivation": "...so that the viewer can sit next to node data (local disk or S3) and open products where they live.",
+      "details": "- List configured sources (local root, S3 bucket/prefix)\n- Navigate directories; directories first, hidden files excluded, labels flagged\n- Open a label from a source; data is read in place",
+      "issue": null
+    },
+    "REQ-03": {
+      "type": "requirement",
+      "title": "As a data user, I want to see the data structures a label describes so that I can pick the table or array to view",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I understand a product's contents before reading data.",
+      "details": "- List each Table_* and Array_* structure with name, type, record/field counts or dimensions\n- Supplemental file areas included but not required for upload",
+      "issue": null
+    },
+    "REQ-04": {
+      "type": "requirement",
+      "title": "As a data user, I want to page through PDS4 table data so that I can inspect records of Character, Binary and Delimited tables",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can verify table contents without writing code.",
+      "details": "- Table_Character, Table_Binary, Table_Delimited\n- Nested and repeated groups expanded with correct byte offsets\n- Duplicate column names supported (positional columns)\n- Only the requested page is read from storage",
+      "issue": null
+    },
+    "REQ-05": {
+      "type": "requirement",
+      "title": "As a data user, I want to export table data as CSV so that I can use it in other tools",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can hand data to spreadsheets or scripts quickly.",
+      "details": "- CSV download of all records (streamed, any size) or a requested range, with a header row",
+      "issue": null
+    },
+    "REQ-06": {
+      "type": "requirement",
+      "title": "As a data user, I want to plot table columns so that I can spot trends and outliers quickly",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can sanity-check data visually.",
+      "details": "- Histogram, line, scatter (optional color column) and 2D heatmap\n- Histograms/heatmaps binned server-side; line/scatter decimated above a configurable point limit\n- Null cells drop the whole row so x/y stay aligned",
+      "issue": null
+    },
+    "REQ-07": {
+      "type": "requirement",
+      "title": "As a data user, I want to render PDS4 arrays as images with colormaps and stretches so that I can quick-look image and cube products",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can visually check imagery without specialized software.",
+      "details": "- Array_2D* and Array_3D* types\n- Colormaps (grayscale, viridis, ...) and stretches (linear, log, sqrt, squared, histogram equalization) with percentile clipping\n- Band selection for 3D arrays",
+      "issue": null
+    },
+    "REQ-08": {
+      "type": "requirement",
+      "title": "As a data user, I want image statistics and pixel values so that I can evaluate data quality quantitatively",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can check ranges and specific values.",
+      "details": "- Min, max, mean, std, percentiles, valid count (special constants excluded)\n- Pixel value at (x, y, band); special-constant pixels return null",
+      "issue": null
+    },
+    "REQ-09": {
+      "type": "requirement",
+      "title": "As a data user, I want to explore a label's XML as a tree so that I can read product metadata",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that I can review metadata alongside the data.",
+      "details": "- Full element tree with attributes and text",
+      "issue": null
+    },
+    "REQ-10": {
+      "type": "requirement",
+      "title": "As a data user, I want scaling factors, offsets and special constants applied so that values I see are physically meaningful",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that displayed values and plots aren't skewed by fill values.",
+      "details": "- Apply `scaling_factor` / `value_offset` for arrays and table fields\n- Map `Special_Constants` (decimal or radix form, e.g. `16#FF7FFFFB#`) to null/NaN",
+      "issue": null
+    },
+    "REQ-11": {
+      "type": "requirement",
+      "title": "As a data user, I want all PDS4 numeric data types and byte orders read correctly so that I can trust what the viewer shows",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that LSB and MSB products both display correct values.",
+      "details": "- MSB and LSB integer and IEEE754 types (1-8 bytes)\n- Character fields embedded in binary records\n- Unsupported types fail with a clear error rather than wrong data",
+      "issue": null
+    },
+    "REQ-12": {
+      "type": "requirement",
+      "title": "As a node operator, I want viewer sessions to persist and expire automatically so that the service can run multiple workers and not fill the disk",
+      "persona": "Node Operator / Data Provider",
+      "motivation": "...so that the viewer can be deployed as a reliable service.",
+      "details": "- Parsed labels stored on disk (shared directory), surviving restarts and visible to all workers\n- Labels and uploads expire after inactivity (`PDS_CACHE_TTL_SECONDS`); cleanup on startup and periodically\n- Upload size limit (`PDS_MAX_UPLOAD_MB`)",
+      "issue": null
+    },
+    "REQ-13": {
+      "type": "requirement",
+      "title": "As a node operator, I want the viewer to read S3 data in place with ranged reads so that large products are viewable without copying them",
+      "persona": "Node Operator / Data Provider",
+      "motivation": "...so that the viewer can sit alongside node buckets cost-effectively.",
+      "details": "- Ranged GETs for table pages and image bands; no full-object downloads\n- Paginated S3 listings (>1000 objects)\n- Access confined to the configured bucket prefix; credentials from the standard AWS chain",
+      "issue": null
+    },
+    "REQ-14": {
+      "type": "requirement",
+      "title": "As a node operator, I want the viewer confined to configured storage roots so that it cannot expose or write arbitrary server files",
+      "persona": "Node Operator / Data Provider",
+      "motivation": "...so that the viewer is safe to deploy.",
+      "details": "- Browse/open limited to configured roots; out-of-root paths return 404\n- Uploads cannot write outside their session directory\n- No default exposure of the server home directory\n- XML parsing with external entities and network access disabled",
+      "issue": null
+    },
+    "REQ-15": {
+      "type": "requirement",
+      "title": "As a data user, I want large products to stay responsive so that interactive viewing is practical",
+      "persona": "Data User (scientist, data engineer)",
+      "motivation": "...so that pan/zoom, restyling and plotting don't re-read whole files.",
+      "details": "- Per-process LRU cache of decoded planes/tables (`PDS_DATA_CACHE_MB`)\n- Only the selected band is read when the band axis is slowest-varying",
+      "issue": null
+    },
+    "REQ-16": {
+      "type": "requirement",
+      "title": "As a PDS EN developer, I want a one-click test deployment so that stakeholders can try the viewer without a local setup",
+      "persona": "PDS EN Developer / Operator",
+      "motivation": "...so that the viewer can be verified from any device (including tablets).",
+      "details": "- GitHub Codespaces devcontainer starting backend + frontend\n- Single-container Docker image serving UI and API\n- End-to-end tests run in CI with requirement-tagged JUnit reports",
+      "issue": null
+    },
+    "BUG-01": {
+      "type": "vulnerability",
+      "title": "Label upload does not confine data file names to the upload directory",
+      "describe": "Data file names containing `../` or absolute paths were joined directly to the upload directory, allowing an upload to write files anywhere the server user can write.",
+      "expected": "Upload filenames are reduced to their base name and written only inside the upload session directory.",
+      "reproduce": "1. POST `/api/labels/upload` with a valid label and a data file named `../../../../tmp/x.txt`\n2. Observe `/tmp/x.txt` is created",
+      "requirements": [
+        "REQ-14"
+      ],
+      "issue": null
+    },
+    "BUG-02": {
+      "type": "vulnerability",
+      "title": "File browser does not restrict access to the configured storage root",
+      "describe": "`/api/browse/list` and `/api/browse/open` accepted any absolute path, so any directory or XML file readable by the server could be listed/opened. The default root was the server user's home directory.",
+      "expected": "Paths are resolved and confined to the configured root; anything else returns 404. Default root is the bundled test data, never the home directory.",
+      "reproduce": "1. Start the backend with `PDS_LOCAL_ROOT` set to a data directory\n2. GET `/api/browse/list?source=local&path=/usr`\n3. Observe a listing of `/usr`",
+      "requirements": [
+        "REQ-14",
+        "REQ-02"
+      ],
+      "issue": null
+    },
+    "BUG-03": {
+      "type": "bug",
+      "title": "Array and binary table readers do not decode LSB data types correctly",
+      "describe": "Little-endian types (e.g. `IEEE754LSBSingle`, `SignedLSB2`) were missing from the type map and silently read as big-endian float32, producing wrong values with no error.",
+      "expected": "All PDS4 MSB/LSB numeric types decode correctly; unsupported types raise a clear error.",
+      "reproduce": "1. Create an `Array_2D_Image` of `IEEE754LSBSingle` values 0..5\n2. Open it in the viewer\n3. Observe values near 1e-41",
+      "requirements": [
+        "REQ-11"
+      ],
+      "issue": null
+    },
+    "BUG-04": {
+      "type": "bug",
+      "title": "Delimited table reader does not honor field_delimiter or quoted values",
+      "describe": "Delimited tables were always split on commas and quotes were stripped naively, so tab/semicolon/vertical-bar tables and quoted commas parsed incorrectly.",
+      "expected": "The label's `field_delimiter` is used and RFC 4180 quoting is respected.",
+      "reproduce": "1. Open a `Table_Delimited` with `field_delimiter` = Horizontal Tab\n2. Observe each record appears as a single column",
+      "requirements": [
+        "REQ-04"
+      ],
+      "issue": null
+    },
+    "BUG-05": {
+      "type": "bug",
+      "title": "Grouped table fields are not read at their group offsets",
+      "describe": "Fields inside `Group_Field_Character/Binary` used their group-relative `field_location` as an absolute record offset and ignored `group_location`/`group_length`, so every repetition read the same bytes.",
+      "expected": "Each repetition of a group is read at `group_location + i * group_length/repetitions + field_location`.",
+      "reproduce": "1. Open a fixed-width table with a repeated group (repetitions > 1)\n2. Observe all repetition columns show identical values",
+      "requirements": [
+        "REQ-04"
+      ],
+      "issue": null
+    },
+    "BUG-06": {
+      "type": "bug",
+      "title": "Line and scatter plots do not keep x/y pairs aligned when a column has null values",
+      "describe": "X and Y values were extracted independently, dropping nulls per column, so any null shifted all later points against the wrong partner.",
+      "expected": "A null in either column drops the whole row; remaining pairs stay aligned.",
+      "reproduce": "1. Plot a table where column A has a null in row 2\n2. Compare plotted pairs with the table",
+      "requirements": [
+        "REQ-06"
+      ],
+      "issue": null
+    },
+    "BUG-07": {
+      "type": "bug",
+      "title": "3D array rendering does not honor the band parameter",
+      "describe": "3D arrays were reduced to 2D with a shape heuristic (`data[0]` or `data[:,:,0]`); the `band` render parameter was ignored and stats/pixel lookups used the full cube.",
+      "expected": "The band axis is identified from axis names (default slowest axis) and the requested band is displayed, with matching statistics and pixel values.",
+      "reproduce": "1. Open an `Array_3D_Spectrum` product\n2. Render with `band` = 5\n3. Observe band 0 is always shown",
+      "requirements": [
+        "REQ-07"
+      ],
+      "issue": null
+    },
+    "BUG-08": {
+      "type": "bug",
+      "title": "End-to-end smoke tests do not match the UI and are not run in CI",
+      "describe": "Playwright tests asserted text that no longer exists (\"PDS4 Viewer\", old drop-zone text) and were never executed by the CI workflow.",
+      "expected": "E2E tests exercise real browse/view/plot flows and run in CI with reports.",
+      "reproduce": "1. Run `npx playwright test`\n2. Observe failures on header/drop-zone text",
+      "requirements": [
+        "REQ-16"
+      ],
+      "issue": null
+    },
+    "TASK-01": {
+      "type": "task",
+      "title": "Refactor viewer backend for maintainability and scale",
+      "description": "- Shared FastAPI dependencies for label/structure lookup (removes ~8 duplicated blocks)\n- Sync route handlers so blocking I/O runs in the threadpool, not the event loop\n- Storage protocol gains `read_range` / `open_stream` / `join`; S3 adapter streams\n- Vectorized PNG encoding\n- Configuration centralized in `app/config.py`",
+      "requirements": [
+        "REQ-12",
+        "REQ-13",
+        "REQ-15"
+      ],
+      "issue": null
+    },
+    "BUG-09": {
+      "type": "bug",
+      "title": "Export CSV does not work for tables with more than 10,000 records",
+      "describe": "The Export CSV link requested `limit=<record_count>`, but the data endpoint rejects `limit` > 10000, so exports of larger tables failed with HTTP 422. The export also built the whole file in memory.",
+      "expected": "CSV export streams all records of any size table.",
+      "reproduce": "1. Open a table with more than 10,000 records\n2. Click Export CSV\n3. Observe an HTTP 422 error instead of a download",
+      "requirements": [
+        "REQ-05"
+      ],
+      "issue": null
+    },
+    "BUG-10": {
+      "type": "bug",
+      "title": "Array values are not converted to physical units using scaling_factor and value_offset",
+      "describe": "Image statistics, pixel values and renders used raw stored values and ignored `scaling_factor` / `value_offset` (and `Special_Constants`). For the bundled Mercury thermal neutron map (scaling_factor 0.222860), Max was shown as 255 instead of 56.83 (10^-4 cm^2/g).",
+      "expected": "Displayed values are `stored * scaling_factor + value_offset`; special constants are excluded.",
+      "reproduce": "1. Open `test_data/array_2d_image/thermal_neutron_map.xml`\n2. View the Image tab statistics\n3. Observe Max: 255.00",
+      "requirements": [
+        "REQ-10"
+      ],
+      "issue": null
+    }
+  }
+}

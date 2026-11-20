@@ -1,20 +1,20 @@
-"""Label management endpoints."""
+"""Label upload and metadata endpoints."""
 from __future__ import annotations
 
 import shutil
-import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.api.deps import get_label, list_labels, store_label
+from app import config
+from app.api.deps import Label, label_store, list_labels, store_label
 from app.models.schemas import LabelMetadata, LabelUploadResponse, StructureSummary
 from app.services.label_parser import parse_label
+from app.services.storage import UPLOADS_BACKEND
 
 router = APIRouter()
 
-UPLOAD_DIR = Path(tempfile.gettempdir()) / "pds4_viewer_uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR = config.UPLOAD_DIR
 
 
 def _safe_filename(name: str) -> str:
@@ -25,44 +25,18 @@ def _safe_filename(name: str) -> str:
     return base
 
 
-@router.post("/upload", response_model=LabelUploadResponse)
-async def upload_label(
-    label_file: UploadFile,
-    data_files: list[UploadFile] = [],
-) -> LabelUploadResponse:
-    """Upload a PDS4 label file (XML/LBLX) and its associated data files.
+def _save_upload(upload: UploadFile, dest: Path) -> None:
+    written = 0
+    with open(dest, "wb") as f:
+        while chunk := upload.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > config.MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail=f"{upload.filename} exceeds the upload size limit")
+            f.write(chunk)
 
-    Drop a label + all referenced data files together. The label's XML
-    specifies data filenames via <File><file_name>, so the uploaded data
-    files are matched by name automatically.
-    """
-    if not label_file.filename:
-        raise HTTPException(status_code=400, detail="No label file provided")
 
-    suffix = Path(label_file.filename).suffix.lower()
-    if suffix not in (".xml", ".lblx"):
-        raise HTTPException(status_code=400, detail="Label file must be .xml or .lblx")
-
-    session_dir = Path(tempfile.mkdtemp(prefix="session_", dir=UPLOAD_DIR))
-
-    label_path = session_dir / _safe_filename(label_file.filename)
-    with open(label_path, "wb") as f:
-        shutil.copyfileobj(label_file.file, f)
-
-    for df in data_files:
-        if df.filename:
-            data_path = session_dir / _safe_filename(df.filename)
-            with open(data_path, "wb") as f:
-                shutil.copyfileobj(df.file, f)
-
-    try:
-        parsed = parse_label(label_path)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Failed to parse label: {e}")
-
-    label_id = store_label(parsed)
-
-    structures = [
+def summarize(parsed: dict) -> list[StructureSummary]:
+    return [
         StructureSummary(
             index=s["index"],
             name=s["name"],
@@ -75,49 +49,56 @@ async def upload_label(
         for s in parsed["structures"]
     ]
 
-    return LabelUploadResponse(
-        label_id=label_id,
-        filename=parsed["filename"],
-        structures=structures,
-    )
+
+@router.post("/upload", response_model=LabelUploadResponse)
+def upload_label(
+    label_file: UploadFile,
+    data_files: list[UploadFile] = File(default_factory=list),
+) -> LabelUploadResponse:
+    """Upload a PDS4 label file (XML/LBLX) and its associated data files.
+
+    Data files are matched to the label's <File><file_name> entries by name.
+    Uploads live in a per-upload session directory that expires with the label.
+    """
+    if not label_file.filename:
+        raise HTTPException(status_code=400, detail="No label file provided")
+    if Path(label_file.filename).suffix.lower() not in (".xml", ".lblx"):
+        raise HTTPException(status_code=400, detail="Label file must be .xml or .lblx")
+
+    session_dir = label_store.new_upload_session()
+    try:
+        label_path = session_dir / _safe_filename(label_file.filename)
+        _save_upload(label_file, label_path)
+        for df in data_files:
+            if df.filename:
+                _save_upload(df, session_dir / _safe_filename(df.filename))
+
+        try:
+            parsed = parse_label(label_path, source=UPLOADS_BACKEND)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Failed to parse label: {e}")
+    except HTTPException:
+        shutil.rmtree(session_dir, ignore_errors=True)
+        raise
+
+    parsed["upload_session"] = session_dir.name
+    label_id = store_label(parsed)
+    return LabelUploadResponse(label_id=label_id, filename=parsed["filename"], structures=summarize(parsed))
 
 
 @router.get("", response_model=list[dict[str, str]])
-async def get_labels() -> list[dict[str, str]]:
-    """List all uploaded labels."""
+def get_labels() -> list[dict[str, str]]:
+    """List all stored labels."""
     return list_labels()
 
 
 @router.get("/{label_id}", response_model=LabelMetadata)
-async def get_label_detail(label_id: str) -> LabelMetadata:
+def get_label_detail(label_id: str, label: Label) -> LabelMetadata:
     """Get label metadata including the XML tree."""
-    label = get_label(label_id)
-    if not label:
-        raise HTTPException(status_code=404, detail="Label not found")
-
-    return LabelMetadata(
-        label_id=label_id,
-        filename=label["filename"],
-        xml_tree=label["xml_tree"],
-    )
+    return LabelMetadata(label_id=label_id, filename=label["filename"], xml_tree=label["xml_tree"])
 
 
 @router.get("/{label_id}/structures", response_model=list[StructureSummary])
-async def get_structures(label_id: str) -> list[StructureSummary]:
+def get_structures(label: Label) -> list[StructureSummary]:
     """List all data structures in a label."""
-    label = get_label(label_id)
-    if not label:
-        raise HTTPException(status_code=404, detail="Label not found")
-
-    return [
-        StructureSummary(
-            index=s["index"],
-            name=s["name"],
-            local_identifier=s.get("local_identifier"),
-            structure_type=s["structure_type"],
-            record_count=s.get("record_count"),
-            field_count=s.get("field_count"),
-            dimensions=s.get("dimensions"),
-        )
-        for s in label["structures"]
-    ]
+    return summarize(label)

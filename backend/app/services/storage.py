@@ -1,13 +1,17 @@
-"""Pluggable storage backend for browsing and reading PDS4 label files.
+"""Pluggable storage backends for browsing and reading PDS4 products.
 
-Supports local filesystem and S3 backends via a common protocol.
+Every read in the application goes through a backend, so data never has to be
+copied to local disk first. Backends support ranged reads, which lets the
+parser fetch only the bytes a request needs (one image band, one page of a
+table) — essential for large products in S3.
 """
 from __future__ import annotations
 
+import io
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import IO, Protocol, runtime_checkable
 
 
 @dataclass
@@ -21,21 +25,6 @@ class FileEntry:
     is_label: bool = False
 
 
-@dataclass
-class StorageConfig:
-    """Configuration for a storage backend."""
-
-    backend_type: str  # "local" or "s3"
-    # Local FS options
-    root_path: str | None = None
-    # S3 options
-    bucket: str | None = None
-    prefix: str | None = None
-    region: str | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-
-
 @runtime_checkable
 class StorageBackend(Protocol):
     """Protocol for storage backends that can browse and read files."""
@@ -45,7 +34,15 @@ class StorageBackend(Protocol):
         ...
 
     def read_file(self, path: str) -> bytes:
-        """Read the full contents of a file."""
+        """Read the full contents of a file (use for small files such as labels)."""
+        ...
+
+    def read_range(self, path: str, offset: int, length: int) -> bytes:
+        """Read `length` bytes starting at byte `offset`. May return fewer bytes at EOF."""
+        ...
+
+    def open_stream(self, path: str, offset: int = 0) -> IO[bytes]:
+        """Open a binary stream positioned at `offset` (for sequential reads)."""
         ...
 
     def file_exists(self, path: str) -> bool:
@@ -54,6 +51,10 @@ class StorageBackend(Protocol):
 
     def get_parent(self, path: str) -> str | None:
         """Return the parent path, or None if at root."""
+        ...
+
+    def join(self, directory: str, name: str) -> str:
+        """Join a directory path and a file name in this backend's path syntax."""
         ...
 
     @property
@@ -66,10 +67,14 @@ LABEL_EXTS = {".xml", ".lblx"}
 
 
 class LocalFilesystemBackend:
-    """Browse and read files from the local filesystem."""
+    """Browse and read files under a fixed root directory on the local filesystem.
 
-    def __init__(self, root_path: str | None = None) -> None:
-        self._root = (Path(root_path) if root_path else Path.home()).resolve()
+    All paths are resolved and confined to the root; anything outside it is
+    reported as not found.
+    """
+
+    def __init__(self, root_path: str | Path) -> None:
+        self._root = Path(root_path).resolve()
 
     @property
     def root(self) -> str:
@@ -94,22 +99,14 @@ class LocalFilesystemBackend:
         entries: list[FileEntry] = []
         try:
             for item in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
-                # Skip hidden files/dirs
                 if item.name.startswith("."):
                     continue
                 try:
                     is_dir = item.is_dir()
                     size = item.stat().st_size if not is_dir else None
                     is_label = not is_dir and item.suffix.lower() in LABEL_EXTS
-                    entries.append(
-                        FileEntry(
-                            name=item.name,
-                            path=str(item),
-                            is_dir=is_dir,
-                            size=size,
-                            is_label=is_label,
-                        )
-                    )
+                    entries.append(FileEntry(name=item.name, path=str(item), is_dir=is_dir,
+                                             size=size, is_label=is_label))
                 except PermissionError:
                     continue
         except PermissionError:
@@ -117,11 +114,24 @@ class LocalFilesystemBackend:
 
         return entries
 
-    def read_file(self, path: str) -> bytes:
+    def _file(self, path: str) -> Path:
         target = self._resolve(path)
         if not target.is_file():
             raise FileNotFoundError(f"File not found: {path}")
-        return target.read_bytes()
+        return target
+
+    def read_file(self, path: str) -> bytes:
+        return self._file(path).read_bytes()
+
+    def read_range(self, path: str, offset: int, length: int) -> bytes:
+        with open(self._file(path), "rb") as f:
+            f.seek(offset)
+            return f.read(length)
+
+    def open_stream(self, path: str, offset: int = 0) -> IO[bytes]:
+        f = open(self._file(path), "rb")
+        f.seek(offset)
+        return f
 
     def file_exists(self, path: str) -> bool:
         try:
@@ -138,105 +148,167 @@ class LocalFilesystemBackend:
             return None
         return str(target.parent)
 
+    def join(self, directory: str, name: str) -> str:
+        return str(Path(directory) / name)
+
 
 class S3StorageBackend:
-    """Browse and read files from an S3 bucket."""
+    """Browse and read objects in an S3 bucket using ranged GETs (no full downloads)."""
 
     def __init__(self, bucket: str, prefix: str = "", region: str | None = None,
-                 aws_access_key_id: str | None = None, aws_secret_access_key: str | None = None) -> None:
-        try:
-            import boto3
-        except ImportError:
-            raise ImportError("boto3 is required for S3 storage backend. Install with: pip install boto3")
+                 aws_access_key_id: str | None = None, aws_secret_access_key: str | None = None,
+                 client: object | None = None) -> None:
+        if client is None:
+            try:
+                import boto3
+            except ImportError:
+                raise ImportError("boto3 is required for the S3 backend. Install with: pip install '.[s3]'")
 
-        session_kwargs: dict[str, str] = {}
-        if region:
-            session_kwargs["region_name"] = region
-        if aws_access_key_id:
-            session_kwargs["aws_access_key_id"] = aws_access_key_id
-        if aws_secret_access_key:
-            session_kwargs["aws_secret_access_key"] = aws_secret_access_key
+            session_kwargs: dict[str, str] = {}
+            if region:
+                session_kwargs["region_name"] = region
+            if aws_access_key_id:
+                session_kwargs["aws_access_key_id"] = aws_access_key_id
+            if aws_secret_access_key:
+                session_kwargs["aws_secret_access_key"] = aws_secret_access_key
+            client = boto3.client("s3", **session_kwargs)
 
-        self._s3 = boto3.client("s3", **session_kwargs)
+        self._s3 = client
         self._bucket = bucket
-        self._prefix = prefix.rstrip("/")
+        self._prefix = prefix.strip("/")
 
     @property
     def root(self) -> str:
         return f"s3://{self._bucket}/{self._prefix}" if self._prefix else f"s3://{self._bucket}"
 
     def _normalize_key(self, path: str) -> str:
-        """Convert a display path to an S3 key."""
-        if path.startswith(f"s3://{self._bucket}/"):
-            path = path[len(f"s3://{self._bucket}/"):]
-        return path.strip("/")
+        """Convert a display path to an S3 key, confined to the configured prefix."""
+        if not path:
+            return self._prefix
+        if path.startswith(f"s3://{self._bucket}"):
+            path = path[len(f"s3://{self._bucket}"):]
+        key = path.strip("/")
+        parts = key.split("/") if key else []
+        if any(p in ("..", ".") for p in parts):
+            raise FileNotFoundError(f"Path not found: {path}")
+        if self._prefix and key != self._prefix and not key.startswith(self._prefix + "/"):
+            raise FileNotFoundError(f"Path not found: {path}")
+        return key
+
+    def _uri(self, key: str) -> str:
+        return f"s3://{self._bucket}/{key}" if key else f"s3://{self._bucket}"
 
     def list_directory(self, path: str) -> list[FileEntry]:
         prefix = self._normalize_key(path)
         if prefix:
             prefix = prefix.rstrip("/") + "/"
 
-        response = self._s3.list_objects_v2(
-            Bucket=self._bucket,
-            Prefix=prefix,
-            Delimiter="/",
-        )
+        dirs: list[FileEntry] = []
+        files: list[FileEntry] = []
+        paginator = self._s3.get_paginator("list_objects_v2")  # type: ignore[attr-defined]
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                dir_key = cp["Prefix"].rstrip("/")
+                dirs.append(FileEntry(name=dir_key.split("/")[-1], path=self._uri(dir_key), is_dir=True))
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key == prefix:
+                    continue
+                name = key.split("/")[-1]
+                suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
+                files.append(FileEntry(name=name, path=self._uri(key), is_dir=False,
+                                       size=obj.get("Size"), is_label=suffix in LABEL_EXTS))
 
-        entries: list[FileEntry] = []
+        dirs.sort(key=lambda e: e.name.lower())
+        files.sort(key=lambda e: e.name.lower())
+        return dirs + files
 
-        # Directories (common prefixes)
-        for cp in response.get("CommonPrefixes", []):
-            dir_path = cp["Prefix"].rstrip("/")
-            name = dir_path.split("/")[-1]
-            entries.append(
-                FileEntry(
-                    name=name,
-                    path=f"s3://{self._bucket}/{dir_path}",
-                    is_dir=True,
-                )
-            )
+    def _get(self, path: str, byte_range: str | None = None) -> dict:
+        from botocore.exceptions import ClientError
 
-        # Files
-        for obj in response.get("Contents", []):
-            key = obj["Key"]
-            if key == prefix:
-                continue
-            name = key.split("/")[-1]
-            suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
-            entries.append(
-                FileEntry(
-                    name=name,
-                    path=f"s3://{self._bucket}/{key}",
-                    is_dir=False,
-                    size=obj.get("Size"),
-                    is_label=suffix in LABEL_EXTS,
-                )
-            )
-
-        return entries
+        key = self._normalize_key(path)
+        kwargs = {"Bucket": self._bucket, "Key": key}
+        if byte_range:
+            kwargs["Range"] = byte_range
+        try:
+            return self._s3.get_object(**kwargs)  # type: ignore[attr-defined]
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code")
+            if code in ("NoSuchKey", "404"):
+                raise FileNotFoundError(f"File not found: {path}") from e
+            if code == "InvalidRange":
+                return {"Body": io.BytesIO(b"")}
+            raise
 
     def read_file(self, path: str) -> bytes:
-        key = self._normalize_key(path)
-        response = self._s3.get_object(Bucket=self._bucket, Key=key)
-        return response["Body"].read()
+        return self._get(path)["Body"].read()
+
+    def read_range(self, path: str, offset: int, length: int) -> bytes:
+        if length <= 0:
+            return b""
+        return self._get(path, f"bytes={offset}-{offset + length - 1}")["Body"].read()
+
+    def open_stream(self, path: str, offset: int = 0) -> IO[bytes]:
+        body = self._get(path, f"bytes={offset}-" if offset else None)["Body"]
+        return _ReadableStream(body)
 
     def file_exists(self, path: str) -> bool:
-        key = self._normalize_key(path)
+        from botocore.exceptions import ClientError
+
         try:
-            self._s3.head_object(Bucket=self._bucket, Key=key)
+            key = self._normalize_key(path)
+            self._s3.head_object(Bucket=self._bucket, Key=key)  # type: ignore[attr-defined]
             return True
-        except Exception:
+        except FileNotFoundError:
             return False
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
 
     def get_parent(self, path: str) -> str | None:
-        key = self._normalize_key(path)
-        if "/" not in key:
+        try:
+            key = self._normalize_key(path)
+        except FileNotFoundError:
             return None
-        parent_key = key.rsplit("/", 1)[0]
-        return f"s3://{self._bucket}/{parent_key}"
+        if key == self._prefix or "/" not in key:
+            return None
+        return self._uri(key.rsplit("/", 1)[0])
+
+    def join(self, directory: str, name: str) -> str:
+        return directory.rstrip("/") + "/" + name
 
 
-# Global storage registry
+class _ReadableStream(io.RawIOBase):
+    """Adapt a botocore StreamingBody to a standard readable binary stream."""
+
+    def __init__(self, body: object) -> None:
+        self._body = body
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, b: bytearray) -> int:  # type: ignore[override]
+        data = self._body.read(len(b))  # type: ignore[attr-defined]
+        n = len(data)
+        b[:n] = data
+        return n
+
+    def close(self) -> None:
+        try:
+            self._body.close()  # type: ignore[attr-defined]
+        finally:
+            super().close()
+
+
+# ---------------------------------------------------------------------------
+# Backend registry
+# ---------------------------------------------------------------------------
+
+# Backends whose names start with "_" are internal (e.g. "_uploads") and are not
+# advertised to the browse UI.
+UPLOADS_BACKEND = "_uploads"
+
 _storage_backends: dict[str, StorageBackend] = {}
 
 
@@ -249,16 +321,29 @@ def get_backend(name: str) -> StorageBackend | None:
 
 
 def list_backends() -> list[dict[str, str]]:
-    return [{"name": name, "root": b.root} for name, b in _storage_backends.items()]
+    return [{"name": name, "root": b.root} for name, b in _storage_backends.items() if not name.startswith("_")]
 
 
-def init_default_backends() -> None:
-    """Initialize default storage backends from environment variables."""
-    # Always register local filesystem
-    local_root = os.environ.get("PDS_LOCAL_ROOT", str(Path.home()))
-    register_backend("local", LocalFilesystemBackend(root_path=local_root))
+DEFAULT_LOCAL_ROOT = Path(__file__).resolve().parents[3] / "test_data"
 
-    # Register S3 backend if configured
+
+def init_default_backends(uploads_dir: Path) -> None:
+    """Initialize storage backends from environment variables.
+
+    PDS_LOCAL_ROOT: directory to expose for browsing. Defaults to the repo's
+        bundled test_data directory (never the user's home directory).
+    PDS_S3_BUCKET / PDS_S3_PREFIX / PDS_S3_REGION: optional S3 source. Credentials
+        come from the standard AWS chain (instance role, env, profile) unless
+        PDS_S3_ACCESS_KEY_ID / PDS_S3_SECRET_ACCESS_KEY are set.
+    """
+    register_backend(UPLOADS_BACKEND, LocalFilesystemBackend(uploads_dir))
+
+    local_root = os.environ.get("PDS_LOCAL_ROOT")
+    if local_root:
+        register_backend("local", LocalFilesystemBackend(local_root))
+    elif DEFAULT_LOCAL_ROOT.is_dir():
+        register_backend("local", LocalFilesystemBackend(DEFAULT_LOCAL_ROOT))
+
     s3_bucket = os.environ.get("PDS_S3_BUCKET")
     if s3_bucket:
         register_backend("s3", S3StorageBackend(

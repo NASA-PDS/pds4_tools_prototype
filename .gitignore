@@ -134,3 +134,10 @@ frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
 frontend/tsconfig.tsbuildinfo
+trace-matrix.md
+trace-matrix.json
+*.tsbuildinfo
+test-results/
+playwright-report/
+.ruff_cache/
+.coverage

@@ -49,6 +49,37 @@ The frontend dev server runs on `http://localhost:5173` and proxies API requests
 3. Browse the data structures described in the label
 4. View table data, create plots, or explore images
 
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PDS_LOCAL_ROOT` | repo `test_data/` | Local directory exposed as the `local` browse source (access is confined to it) |
+| `PDS_S3_BUCKET`, `PDS_S3_PREFIX`, `PDS_S3_REGION` | unset | Optional `s3` source. Data is read in place with ranged GETs. Credentials come from the standard AWS chain. Requires `pip install ".[s3]"` |
+| `PDS_CACHE_DIR` | `$TMPDIR/pds4_viewer` | Label records and uploads. Share it across workers and replicas |
+| `PDS_CACHE_TTL_SECONDS` | `86400` | Idle labels and uploads expire after this |
+| `PDS_DATA_CACHE_MB` | `512` | Per-process cache of decoded images and tables |
+| `PDS_PLOT_MAX_POINTS` | `50000` | Line and scatter plots are decimated above this |
+| `PDS_MAX_UPLOAD_MB` | `1024` | Per-file upload limit |
+| `PDS_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
+| `PDS_STATIC_DIR` | unset | Serve the built frontend from the API (single-container deploys) |
+
+## Try it without a local setup
+
+- **GitHub Codespaces** (works from a browser or iPad): **Code → Codespaces → Create codespace**.
+  Dependencies install and both servers start automatically. Open the forwarded port 5173.
+- **Docker**: `docker build -t pds4-viewer . && docker run -p 8000:8000 pds4-viewer`, then open http://localhost:8000.
+  CI builds this image and smoke-tests it on every push.
+
+### Smoke-testing a deployment
+
+`scripts/smoke_test.py` checks that a running viewer serves the UI, opens and renders products,
+reads tables, and rejects paths outside its root. Use it on a container, a Codespace, or production:
+
+```bash
+python scripts/smoke_test.py http://localhost:8000
+python scripts/smoke_test.py https://<prod-host> --label <dir>/<product>.xml --table-label <dir>/<table>.xml
+```
+
 ## Testing
 
 ### Backend Tests
@@ -66,8 +97,15 @@ npm test
 ### E2E Tests
 ```bash
 cd frontend
-npx playwright test
+npx playwright install chromium
+npx playwright test            # starts the backend (test_data) and Vite automatically
 ```
+
+### Requirements traceability
+Tests are tagged with requirement and bug keys (`REQ-xx`, `BUG-xx`) that map to GitHub
+issues. Every run writes JUnit reports carrying those keys, and CI publishes a traceability
+matrix. See [traceability/README.md](traceability/README.md), which also covers the
+TestRail upload.
 
 ## License
 

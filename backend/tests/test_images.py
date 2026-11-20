@@ -1,6 +1,8 @@
 """Tests for image/array data endpoints."""
 from __future__ import annotations
 
+import pytest
+
 
 def _upload_label(client, xml_path, data_path):
     """Helper to upload a label and return the label_id."""
@@ -16,6 +18,7 @@ def _upload_label(client, xml_path, data_path):
     return resp.json()["label_id"]
 
 
+@pytest.mark.req("REQ-07")
 def test_get_image_metadata(client, array_2d_image_xml, array_2d_image_data):
     label_id = _upload_label(client, array_2d_image_xml, array_2d_image_data)
 
@@ -36,6 +39,7 @@ def test_get_image_metadata(client, array_2d_image_xml, array_2d_image_data):
     assert body["height"] == 360
 
 
+@pytest.mark.req("REQ-08", "REQ-10", "BUG-10")
 def test_get_image_statistics(client, array_2d_image_xml, array_2d_image_data):
     label_id = _upload_label(client, array_2d_image_xml, array_2d_image_data)
 
@@ -49,10 +53,12 @@ def test_get_image_statistics(client, array_2d_image_xml, array_2d_image_data):
     assert "max" in body
     assert "mean" in body
     assert "percentiles" in body
+    # Physical units: stored bytes (0-255) * scaling_factor 0.222860
     assert body["min"] >= 0
-    assert body["max"] <= 255
+    assert body["max"] == pytest.approx(255 * 0.222860)
 
 
+@pytest.mark.req("REQ-07")
 def test_render_image_default(client, array_2d_image_xml, array_2d_image_data):
     label_id = _upload_label(client, array_2d_image_xml, array_2d_image_data)
 
@@ -68,6 +74,7 @@ def test_render_image_default(client, array_2d_image_xml, array_2d_image_data):
     assert resp.content[:4] == b"\x89PNG"
 
 
+@pytest.mark.req("REQ-07")
 def test_render_image_viridis(client, array_2d_image_xml, array_2d_image_data):
     label_id = _upload_label(client, array_2d_image_xml, array_2d_image_data)
 
@@ -82,6 +89,7 @@ def test_render_image_viridis(client, array_2d_image_xml, array_2d_image_data):
     assert resp.content[:4] == b"\x89PNG"
 
 
+@pytest.mark.req("REQ-07")
 def test_render_image_histeq(client, array_2d_image_xml, array_2d_image_data):
     label_id = _upload_label(client, array_2d_image_xml, array_2d_image_data)
 
@@ -96,6 +104,7 @@ def test_render_image_histeq(client, array_2d_image_xml, array_2d_image_data):
     assert resp.content[:4] == b"\x89PNG"
 
 
+@pytest.mark.req("REQ-08")
 def test_pixel_value(client, array_2d_image_xml, array_2d_image_data):
     label_id = _upload_label(client, array_2d_image_xml, array_2d_image_data)
 
@@ -110,6 +119,7 @@ def test_pixel_value(client, array_2d_image_xml, array_2d_image_data):
     assert body["y"] == 0
 
 
+@pytest.mark.req("REQ-07")
 def test_image_not_a_table(client, table_character_xml, table_character_tab):
     """Requesting image metadata for a table structure should fail."""
     with open(table_character_xml, "rb") as lf, open(table_character_tab, "rb") as df:

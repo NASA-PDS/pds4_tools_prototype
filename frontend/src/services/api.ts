@@ -137,9 +137,12 @@ export interface ImageMetadata {
   name: string;
   structure_type: string;
   dimensions: number[];
+  axis_names?: string[];
   element_data_type: string;
   width: number;
   height: number;
+  bands: number;
+  band_axis: number | null;
 }
 
 export interface ImageStatistics {
@@ -150,6 +153,7 @@ export interface ImageStatistics {
   shape: number[];
   dtype: string;
   percentiles: Record<string, number>;
+  valid_count?: number;
 }
 
 export interface ImageRenderParams {
@@ -266,9 +270,10 @@ export async function getImageMetadata(
 export async function getImageStatistics(
   labelId: string,
   structureIndex: number,
+  band = 0,
 ): Promise<ImageStatistics> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}/statistics`,
+    `${API_BASE}/images/${labelId}/${structureIndex}/statistics?band=${band}`,
   );
   if (!resp.ok) throw new Error("Failed to fetch image statistics");
   return resp.json();
@@ -292,4 +297,24 @@ export async function renderImage(
     throw new Error(err.detail || "Image render failed");
   }
   return resp.blob();
+}
+
+export interface PixelValue {
+  x: number;
+  y: number;
+  band: number;
+  value: number | null;
+}
+
+export async function getPixelValue(
+  labelId: string,
+  structureIndex: number,
+  x: number,
+  y: number,
+  band = 0,
+): Promise<PixelValue> {
+  const params = new URLSearchParams({ x: String(x), y: String(y), band: String(band) });
+  const resp = await fetch(`${API_BASE}/images/${labelId}/${structureIndex}/pixel?${params}`);
+  if (!resp.ok) throw new Error("Failed to fetch pixel value");
+  return resp.json();
 }

@@ -10,11 +10,12 @@ RUN npx vite build
 FROM python:3.11-slim
 WORKDIR /app
 COPY backend/ /app/backend/
-RUN pip install --no-cache-dir /app/backend
+RUN pip install --no-cache-dir "/app/backend[s3]"
 COPY --from=frontend /src/frontend/dist /app/static
 COPY test_data/ /data/
 ENV PDS_STATIC_DIR=/app/static \
-    PDS_LOCAL_ROOT=/data
+    PDS_LOCAL_ROOT=/data \
+    PDS_CACHE_DIR=/var/cache/pds4_viewer
 WORKDIR /app/backend
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
