@@ -87,9 +87,12 @@ class ImageMetadata(BaseModel):
     name: str
     structure_type: str
     dimensions: list[int]
+    axis_names: list[str] = []
     element_data_type: str
     width: int
     height: int
+    bands: int = 1
+    band_axis: int | None = None
 
 
 class ImageRenderParams(BaseModel):
@@ -99,7 +102,7 @@ class ImageRenderParams(BaseModel):
     vmax: float | None = Field(default=None, description="Max clip value (None = auto from percentile)")
     percentile_low: float = Field(default=1.0, ge=0, le=100, description="Low percentile for auto-clip")
     percentile_high: float = Field(default=99.0, ge=0, le=100, description="High percentile for auto-clip")
-    band: int | None = Field(default=None, description="Band index for 3D arrays")
+    band: int | None = Field(default=None, ge=0, description="Band index for 3D arrays")
 
 
 class ErrorResponse(BaseModel):

@@ -1,6 +1,8 @@
 """Tests for table data and plotting endpoints."""
 from __future__ import annotations
 
+import pytest
+
 
 def _upload_label(client, xml_path, tab_path):
     """Helper to upload a label and return the label_id."""
@@ -16,6 +18,7 @@ def _upload_label(client, xml_path, tab_path):
     return resp.json()["label_id"]
 
 
+@pytest.mark.req("REQ-04")
 def test_get_table_metadata(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
     resp = client.get(f"/api/tables/{label_id}/0")
@@ -26,6 +29,7 @@ def test_get_table_metadata(client, table_character_xml, table_character_tab):
     assert len(body["fields"]) > 0
 
 
+@pytest.mark.req("REQ-04")
 def test_get_table_data(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
     resp = client.get(f"/api/tables/{label_id}/0/data?offset=0&limit=10")
@@ -40,6 +44,7 @@ def test_get_table_data(client, table_character_xml, table_character_tab):
         assert len(body["data"][0]) == len(body["columns"])
 
 
+@pytest.mark.req("REQ-04")
 def test_get_table_data_pagination(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
     resp1 = client.get(f"/api/tables/{label_id}/0/data?offset=0&limit=5")
@@ -52,6 +57,7 @@ def test_get_table_data_pagination(client, table_character_xml, table_character_
         assert data1[0] != data2[0]
 
 
+@pytest.mark.req("REQ-05")
 def test_get_table_csv(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
     resp = client.get(f"/api/tables/{label_id}/0/data?format=csv&limit=5")
@@ -59,12 +65,14 @@ def test_get_table_csv(client, table_character_xml, table_character_tab):
     assert "text/csv" in resp.headers.get("content-type", "")
 
 
+@pytest.mark.req("REQ-04")
 def test_table_structure_not_found(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
     resp = client.get(f"/api/tables/{label_id}/99")
     assert resp.status_code == 404
 
 
+@pytest.mark.req("REQ-06")
 def test_histogram_plot(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
 
@@ -87,6 +95,7 @@ def test_histogram_plot(client, table_character_xml, table_character_tab):
     assert "traces" in body["data"]
 
 
+@pytest.mark.req("REQ-06")
 def test_line_plot(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
 
@@ -109,6 +118,7 @@ def test_line_plot(client, table_character_xml, table_character_tab):
     assert body["plot_type"] == "line"
 
 
+@pytest.mark.req("REQ-06")
 def test_scatter_plot(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
 
@@ -131,6 +141,7 @@ def test_scatter_plot(client, table_character_xml, table_character_tab):
     assert body["plot_type"] == "scatter"
 
 
+@pytest.mark.req("REQ-06")
 def test_heatmap_plot(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
 
@@ -153,6 +164,7 @@ def test_heatmap_plot(client, table_character_xml, table_character_tab):
     assert body["plot_type"] == "heatmap"
 
 
+@pytest.mark.req("REQ-06")
 def test_plot_missing_columns(client, table_character_xml, table_character_tab):
     label_id = _upload_label(client, table_character_xml, table_character_tab)
     resp = client.post(
@@ -162,6 +174,7 @@ def test_plot_missing_columns(client, table_character_xml, table_character_tab):
     assert resp.status_code == 400
 
 
+@pytest.mark.req("REQ-04")
 def test_duplicate_column_names(client, table_dup_cols_xml, table_dup_cols_csv):
     """Test that tables with duplicate column names work correctly."""
     label_id = _upload_label(client, table_dup_cols_xml, table_dup_cols_csv)
@@ -196,3 +209,40 @@ def test_duplicate_column_names(client, table_dup_cols_xml, table_dup_cols_csv):
         json={"plot_type": "histogram", "x_column": 5},
     )
     assert resp2.status_code == 200
+
+
+@pytest.mark.req("REQ-05", "BUG-09")
+def test_csv_export_streams_more_than_10000_rows(client, tmp_path, monkeypatch) -> None:
+    from app.api.routes import tables
+
+    monkeypatch.setattr(tables, "CSV_CHUNK_ROWS", 7)  # exercise multi-chunk streaming
+    n = 12_345
+    (tmp_path / "big.csv").write_bytes(b"".join(f"{i},{i * 0.5}\r\n".encode() for i in range(n)))
+    label = tmp_path / "big.xml"
+    label.write_text(f"""<Product_Observational xmlns="http://pds.nasa.gov/pds4/pds/v1"><File_Area_Observational>
+<File><file_name>big.csv</file_name></File><Table_Delimited><local_identifier>big</local_identifier>
+<offset unit="byte">0</offset><records>{n}</records><field_delimiter>Comma</field_delimiter>
+<Record_Delimited><fields>2</fields><groups>0</groups>
+<Field_Delimited><name>i</name><field_number>1</field_number><data_type>ASCII_Integer</data_type></Field_Delimited>
+<Field_Delimited><name>h</name><field_number>2</field_number><data_type>ASCII_Real</data_type></Field_Delimited>
+</Record_Delimited></Table_Delimited></File_Area_Observational></Product_Observational>""")
+    with open(label, "rb") as lf, open(tmp_path / "big.csv", "rb") as df:
+        label_id = client.post("/api/labels/upload", files={
+            "label_file": ("big.xml", lf, "application/xml"),
+            "data_files": ("big.csv", df, "text/csv"),
+        }).json()["label_id"]
+    resp = client.get(f"/api/tables/{label_id}/0/data", params={"format": "csv"})
+    assert resp.status_code == 200
+    assert 'filename="big.csv"' in resp.headers["content-disposition"]
+    lines = resp.text.strip().splitlines()
+    assert lines[0] == "i,h" and len(lines) == n + 1 and lines[-1] == f"{n - 1},{(n - 1) * 0.5}"
+
+
+@pytest.mark.req("REQ-04")
+def test_json_page_limit_still_capped(client, table_character_xml, table_character_tab) -> None:
+    with open(table_character_xml, "rb") as lf, open(table_character_tab, "rb") as df:
+        label_id = client.post("/api/labels/upload", files={
+            "label_file": (table_character_xml.name, lf, "application/xml"),
+            "data_files": (table_character_tab.name, df, "application/octet-stream"),
+        }).json()["label_id"]
+    assert client.get(f"/api/tables/{label_id}/0/data", params={"limit": 20000}).status_code == 422

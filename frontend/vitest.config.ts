@@ -8,5 +8,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./tests/unit/setup.ts"],
     include: ["tests/unit/**/*.test.{ts,tsx}", "src/**/*.test.{ts,tsx}"],
+    // Test names carry [REQ-xx]/[BUG-xx] tags; the JUnit report feeds
+    // traceability/trace_matrix.py and TestRail (trcli).
+    reporters: ["default", ["junit", { outputFile: "test-results/junit-unit.xml", suiteName: "frontend-unit" }]],
   },
 });

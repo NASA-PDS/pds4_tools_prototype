@@ -1,13 +1,17 @@
 """Tests for label upload and metadata endpoints."""
 from __future__ import annotations
 
+import pytest
 
+
+@pytest.mark.req("REQ-16")
 def test_health_check(client):
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
 
 
+@pytest.mark.req("REQ-01", "REQ-03")
 def test_upload_label_success(client, table_character_xml, table_character_tab):
     with open(table_character_xml, "rb") as lf, open(table_character_tab, "rb") as df:
         resp = client.post(
@@ -25,6 +29,7 @@ def test_upload_label_success(client, table_character_xml, table_character_tab):
     assert body["structures"][0]["structure_type"] == "Table_Character"
 
 
+@pytest.mark.req("REQ-01")
 def test_upload_label_invalid_extension(client):
     resp = client.post(
         "/api/labels/upload",
@@ -33,6 +38,7 @@ def test_upload_label_invalid_extension(client):
     assert resp.status_code == 400
 
 
+@pytest.mark.req("REQ-01")
 def test_list_labels(client, table_character_xml, table_character_tab):
     with open(table_character_xml, "rb") as lf, open(table_character_tab, "rb") as df:
         client.post(
@@ -48,6 +54,7 @@ def test_list_labels(client, table_character_xml, table_character_tab):
     assert len(labels) >= 1
 
 
+@pytest.mark.req("REQ-09")
 def test_get_label_detail(client, table_character_xml, table_character_tab):
     with open(table_character_xml, "rb") as lf, open(table_character_tab, "rb") as df:
         upload_resp = client.post(
@@ -66,6 +73,7 @@ def test_get_label_detail(client, table_character_xml, table_character_tab):
     assert "xml_tree" in body
 
 
+@pytest.mark.req("REQ-03")
 def test_get_structures(client, table_character_xml, table_character_tab):
     with open(table_character_xml, "rb") as lf, open(table_character_tab, "rb") as df:
         upload_resp = client.post(
@@ -85,6 +93,7 @@ def test_get_structures(client, table_character_xml, table_character_tab):
     assert structures[0]["record_count"] is not None
 
 
+@pytest.mark.req("REQ-03")
 def test_label_not_found(client):
     resp = client.get("/api/labels/nonexistent")
     assert resp.status_code == 404
