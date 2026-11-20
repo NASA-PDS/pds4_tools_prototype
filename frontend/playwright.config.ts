@@ -31,7 +31,7 @@ export default defineConfig({
       // Backend serving the repo's test_data as the "local" source.
       command: "uvicorn app.main:app --port 8000",
       cwd: "../backend",
-      env: { PDS_LOCAL_ROOT: "../test_data" },
+      env: { PDS_LOCAL_ROOT: "../test_data", PDS_ENABLE_UPLOAD: "true" },
       url: "http://127.0.0.1:8000/api/health",
       reuseExistingServer: !process.env.CI,
     },

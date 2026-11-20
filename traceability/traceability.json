@@ -136,6 +136,14 @@
       "details": "- GitHub Codespaces devcontainer starting backend + frontend\n- Single-container Docker image serving UI and API\n- End-to-end tests run in CI with requirement-tagged JUnit reports",
       "issue": null
     },
+    "REQ-17": {
+      "type": "requirement",
+      "title": "As a node operator, I want label upload disabled unless I explicitly enable it so that users can only view data from configured, trusted sources",
+      "persona": "Node Operator / Data Provider",
+      "motivation": "...so that the viewer never parses arbitrary files dropped in by users, which would be costly to secure and maintain.",
+      "details": "- Upload is off by default and enabled only with `PDS_ENABLE_UPLOAD=true`\n- When off, `POST /api/labels/upload` returns 403 and stores nothing\n- `GET /api/config` reports whether upload is enabled\n- When off, the UI hides the Upload tab and prompts users to browse configured sources\n- Browse/open from configured sources (local root, S3 prefix) works regardless",
+      "issue": null
+    },
     "BUG-01": {
       "type": "vulnerability",
       "title": "Label upload does not confine data file names to the upload directory",

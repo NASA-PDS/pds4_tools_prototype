@@ -32,6 +32,24 @@ function apiUrl(path: string): string {
   return url.toString();
 }
 
+/* ---- Server configuration ---- */
+
+export interface ServerConfig {
+  upload_enabled: boolean;
+  max_upload_mb: number;
+}
+
+/** Deployment features. Falls back to the most restrictive settings if unavailable. */
+export async function getServerConfig(): Promise<ServerConfig> {
+  try {
+    const resp = await fetch(apiUrl("/config"));
+    if (!resp.ok) throw new Error(resp.statusText);
+    return await resp.json();
+  } catch {
+    return { upload_enabled: false, max_upload_mb: 0 };
+  }
+}
+
 /* ---- Browse / Storage Backend types ---- */
 
 export interface StorageSource {

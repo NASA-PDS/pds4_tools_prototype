@@ -69,6 +69,12 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/config")
+def client_config() -> dict[str, object]:
+    """Features the frontend should show for this deployment."""
+    return {"upload_enabled": config.UPLOAD_ENABLED, "max_upload_mb": config.MAX_UPLOAD_BYTES // (1024 * 1024)}
+
+
 # Optionally serve the built frontend from the same origin (single-container deploys).
 # Mounted last so /api routes take precedence.
 _static_dir = os.environ.get("PDS_STATIC_DIR")

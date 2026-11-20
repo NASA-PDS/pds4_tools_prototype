@@ -54,7 +54,7 @@ The frontend dev server runs on `http://localhost:5173` and proxies API requests
 ## Usage
 
 1. Open the app in your browser
-2. Upload or select a PDS4 label file (`.xml` or `.lblx`)
+2. Browse a configured source and open a PDS4 label file (`.xml` or `.lblx`), or upload one if the server has `PDS_ENABLE_UPLOAD` turned on
 3. Browse the data structures described in the label
 4. View table data, create plots, or explore images
 
@@ -68,7 +68,8 @@ The frontend dev server runs on `http://localhost:5173` and proxies API requests
 | `PDS_CACHE_TTL_SECONDS` | `86400` | Idle labels and uploads expire after this |
 | `PDS_DATA_CACHE_MB` | `512` | Per-process cache of decoded images and tables |
 | `PDS_PLOT_MAX_POINTS` | `50000` | Line and scatter plots are decimated above this |
-| `PDS_MAX_UPLOAD_MB` | `1024` | Per-file upload limit |
+| `PDS_ENABLE_UPLOAD` | `false` | Allow users to upload their own label and data files. Off by default, so users can only open labels from the configured sources above. When off, the upload API returns 403 and the UI hides the Upload tab |
+| `PDS_MAX_UPLOAD_MB` | `1024` | Per-file upload limit | (only when uploads are enabled)
 | `PDS_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 | `PDS_STATIC_DIR` | unset | Serve the built frontend from the API (single-container deploys) |
 

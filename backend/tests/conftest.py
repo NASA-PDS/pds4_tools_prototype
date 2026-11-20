@@ -20,6 +20,14 @@ TABLE_DUP_COLS_XML = TEST_DATA_DIR / "table_character_dup_cols" / "ch3_cht_raw_2
 TABLE_DUP_COLS_CSV = TEST_DATA_DIR / "table_character_dup_cols" / "ch3_cht_raw_20230824T12_625085705_v1.csv"
 
 
+@pytest.fixture(autouse=True)
+def _uploads_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Most tests exercise the upload API; tests of the default turn it back off."""
+    from app import config
+
+    monkeypatch.setattr(config, "UPLOAD_ENABLED", True)
+
+
 @pytest.fixture
 def client():
     clear_labels()

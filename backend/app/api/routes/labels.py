@@ -71,6 +71,8 @@ def upload_label(
     Data files are matched to the label's <File><file_name> entries by name.
     Uploads live in a per-upload session directory that expires with the label.
     """
+    if not config.UPLOAD_ENABLED:
+        raise HTTPException(status_code=403, detail="Uploads are disabled on this server")
     if not label_file.filename:
         raise HTTPException(status_code=400, detail="No label file provided")
     suffix = LABEL_SUFFIXES.get(Path(label_file.filename).suffix.lower())

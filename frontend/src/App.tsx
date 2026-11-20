@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import FileUpload from "./components/FileUpload";
 import FileBrowser from "./components/FileBrowser";
 import StructureList from "./components/StructureList";
@@ -7,6 +7,7 @@ import PlotPanel from "./components/PlotPanel";
 import LabelView from "./components/LabelView";
 import ImageViewer from "./components/ImageViewer";
 import { useTheme } from "./ThemeContext";
+import { getServerConfig } from "./services/api";
 import type { LabelUploadResponse, StructureSummary } from "./services/api";
 
 type Tab = "table" | "plot" | "image" | "label";
@@ -20,6 +21,20 @@ export default function App() {
   const [inputMode, setInputMode] = useState<InputMode>("browse");
   const [fileBrowserCollapsed, setFileBrowserCollapsed] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  // Upload is off unless the server enables it (REQ-17); browse is always available.
+  const [uploadEnabled, setUploadEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getServerConfig().then((cfg) => {
+      if (active) setUploadEnabled(cfg.upload_enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const showUpload = uploadEnabled && inputMode === "upload";
 
   const handleLabelLoaded = (result: LabelUploadResponse) => {
     setLabel(result);
@@ -116,16 +131,18 @@ export default function App() {
             >
               Browse Files
             </button>
-            <button
-              className={`flex-1 px-4 py-2.5 text-xs font-medium uppercase tracking-wider transition-all ${
-                inputMode === "upload"
-                  ? "text-nasa-blue border-b-2 border-nasa-blue bg-white dark:bg-nasa-gray-900/60"
-                  : "text-gray-500 dark:text-nasa-gray-300 hover:text-gray-700 dark:hover:text-nasa-gray-100"
-              }`}
-              onClick={() => setInputMode("upload")}
-            >
-              Upload
-            </button>
+            {uploadEnabled && (
+              <button
+                className={`flex-1 px-4 py-2.5 text-xs font-medium uppercase tracking-wider transition-all ${
+                  inputMode === "upload"
+                    ? "text-nasa-blue border-b-2 border-nasa-blue bg-white dark:bg-nasa-gray-900/60"
+                    : "text-gray-500 dark:text-nasa-gray-300 hover:text-gray-700 dark:hover:text-nasa-gray-100"
+                }`}
+                onClick={() => setInputMode("upload")}
+              >
+                Upload
+              </button>
+            )}
           </div>
 
           {/* Selected file indicator */}
@@ -152,10 +169,10 @@ export default function App() {
           {/* Input content */}
           {!fileBrowserCollapsed && (
             <div className="p-3 border-b border-gray-200 dark:border-nasa-gray-700/40 overflow-auto flex-shrink-0" style={{ maxHeight: label ? "50%" : "100%" }}>
-              {inputMode === "browse" ? (
-                <FileBrowser onLabelOpened={handleLabelLoaded} />
-              ) : (
+              {showUpload ? (
                 <FileUpload onSuccess={handleLabelLoaded} />
+              ) : (
+                <FileBrowser onLabelOpened={handleLabelLoaded} />
               )}
             </div>
           )}
@@ -231,7 +248,9 @@ export default function App() {
                 <p className="text-xl font-heading font-medium text-gray-500 dark:text-nasa-gray-300 mb-2">
                   {label
                     ? "Select a data structure from the sidebar"
-                    : "Upload a PDS4 label to get started"}
+                    : uploadEnabled
+                      ? "Upload a PDS4 label to get started"
+                      : "Browse to a PDS4 label to get started"}
                 </p>
                 <p className="text-sm text-gray-500 dark:text-nasa-gray-300">
                   Supports .xml and .lblx PDS4 label files
