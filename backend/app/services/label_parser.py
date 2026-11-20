@@ -586,10 +586,10 @@ def array_plane_shape(structure: dict[str, Any]) -> tuple[int, int]:
     if len(dims) == 3:
         dims.pop(_band_axis(structure, 3))
     if len(dims) >= 2:
-        return dims[0], dims[1]
-    if not dims:
-        return 1, 0
-    return 1, dims[0]
+        height, width = dims[:2]
+        return height, width
+    # 1D (or empty) array: a single row.
+    return 1, next(iter(dims), 0)
 
 
 def array_band_count(structure: dict[str, Any]) -> int:

@@ -7,7 +7,7 @@
   "containerEnv": {
     "PDS_LOCAL_ROOT": "${containerWorkspaceFolder}/test_data"
   },
-  "postCreateCommand": "pip install --only-binary :all: --require-hashes -r backend/requirements-dev.lock && pip install --no-deps --no-build-isolation -e ./backend && cd frontend && npm ci --ignore-scripts",
+  "postCreateCommand": "pip install --only-binary :all: --require-hashes -r backend/requirements-dev.lock && pip install --only-binary :all: --no-deps --no-build-isolation -e ./backend && cd frontend && npm ci --ignore-scripts",
   "postAttachCommand": "bash .devcontainer/start.sh",
   "forwardPorts": [5173, 8000],
   "portsAttributes": {

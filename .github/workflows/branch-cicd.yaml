@@ -26,7 +26,7 @@ jobs:
         run: |
           cd backend
           pip install --only-binary :all: --require-hashes -r requirements-dev.lock
-          pip install --no-deps --no-build-isolation -e .
+          pip install --only-binary :all: --no-deps --no-build-isolation -e .
 
       - name: Lint backend
         run: |
@@ -110,7 +110,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --only-binary :all: --require-hashes -r backend/requirements.lock
-          pip install --no-deps --no-build-isolation -e ./backend
+          pip install --only-binary :all: --no-deps --no-build-isolation -e ./backend
           cd frontend
           npm ci --ignore-scripts
           npm run e2e:install
