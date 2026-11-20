@@ -1,3 +1,6 @@
+import asyncio
+import contextlib
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,13 +13,32 @@ from fastapi.staticfiles import StaticFiles
 from app import config
 from app.api.deps import label_store
 from app.api.routes import browse, images, labels, tables
+from app.services.label_store import CLEANUP_INTERVAL_SECONDS
 from app.services.storage import init_default_backends
+
+logger = logging.getLogger(__name__)
+
+
+async def _periodic_cleanup() -> None:
+    """Remove expired labels/uploads on a fixed schedule, even when no new uploads arrive."""
+    while True:
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+        try:
+            await asyncio.to_thread(label_store.cleanup)
+        except Exception:  # keep the loop alive; the next run will retry
+            logger.exception("Periodic label cleanup failed")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     label_store.cleanup()  # purge records/uploads that expired while the server was down
-    yield
+    task = asyncio.create_task(_periodic_cleanup())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(

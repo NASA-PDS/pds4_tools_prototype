@@ -67,7 +67,16 @@ def build(catalog: dict, results: list[dict]) -> dict:
         tests = [r for r in results if key in r["keys"]]
         failed = sum(r["status"] == "failed" for r in tests)
         passed = sum(r["status"] == "passed" for r in tests)
-        status = "NOT TESTED" if not tests else ("FAIL" if failed else "PASS")
+        skipped = sum(r["status"] == "skipped" for r in tests)
+        # A skipped test verifies nothing, so it can never count toward PASS.
+        if not tests:
+            status = "NOT TESTED"
+        elif failed:
+            status = "FAIL"
+        elif skipped:
+            status = "SKIPPED"
+        else:
+            status = "PASS"
         matrix[key] = {
             "title": item["title"],
             "type": item["type"],
@@ -75,6 +84,7 @@ def build(catalog: dict, results: list[dict]) -> dict:
             "status": status,
             "passed": passed,
             "failed": failed,
+            "skipped": skipped,
             "tests": tests,
         }
     unknown = sorted({k for r in results for k in r["keys"]} - set(catalog["items"]))
@@ -83,7 +93,8 @@ def build(catalog: dict, results: list[dict]) -> dict:
 
 
 def to_markdown(m: dict) -> str:
-    icon = {"PASS": "✅", "FAIL": "❌", "NOT TESTED": "⚠️"}
+    icon = {"PASS": "✅", "FAIL": "❌", "SKIPPED": "⏭️", "NOT TESTED": "⚠️"}
+    test_icon = {"passed": "✅", "failed": "❌", "skipped": "⏭️"}
     lines = ["## Requirements traceability", "",
              "| Key | Issue | Status | Tests (pass/total) | Title |", "|---|---|---|---|---|"]
     for key, row in m["items"].items():
@@ -97,7 +108,7 @@ def to_markdown(m: dict) -> str:
     for key, row in m["items"].items():
         if row["tests"]:
             lines.append(f"**{key}**")
-            lines += [f"- {'✅' if t['status'] == 'passed' else '❌'} `{t['suite']}` {t['test']}" for t in row["tests"]]
+            lines += [f"- {test_icon.get(t['status'], '❌')} `{t['suite']}` {t['test']}" for t in row["tests"]]
             lines.append("")
     lines.append("</details>")
     return "\n".join(lines) + "\n"

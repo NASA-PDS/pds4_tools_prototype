@@ -12,7 +12,7 @@ from app import config
 from app.api.deps import TableStructure
 from app.models.schemas import FieldInfo, PlotDataResponse, PlotSpec, TableDataResponse, TableMetadata
 from app.services.data_cache import data_cache
-from app.services.label_parser import read_table_data
+from app.services.label_parser import iter_table_rows, read_table_data
 from app.services.table_service import compute_heatmap, compute_histogram, compute_line_plot, compute_scatter_plot
 
 router = APIRouter()
@@ -134,15 +134,14 @@ def _csv_stream(s: dict[str, Any], columns: list[str], start: int, end: int) -> 
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(columns)
-        for chunk_start in range(start, end, CSV_CHUNK_ROWS):
-            writer.writerows(read_table_data(s, offset=chunk_start, limit=min(CSV_CHUNK_ROWS, end - chunk_start)))
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate()
-        if buf.tell():
-            yield buf.getvalue()
-        else:
-            yield ""
+        # One sequential pass over the requested rows; flush every CSV_CHUNK_ROWS.
+        for i, row in enumerate(iter_table_rows(s, offset=start, limit=end - start), 1):
+            writer.writerow(row)
+            if i % CSV_CHUNK_ROWS == 0:
+                yield buf.getvalue()
+                buf.seek(0)
+                buf.truncate()
+        yield buf.getvalue()
 
     name = (s.get("local_identifier") or s.get("name") or "table").replace("/", "_").replace('"', "")
     return StreamingResponse(

@@ -15,6 +15,9 @@ from __future__ import annotations
 import csv
 import io
 import re
+import threading
+from collections import OrderedDict
+from collections.abc import Iterator
 from pathlib import Path
 from typing import IO, Any
 
@@ -392,12 +395,28 @@ def read_table_data(
     Rows are lists of values in field order (positional, so duplicate column
     names are supported). Special constants become None; scaling is applied.
     """
+    return list(iter_table_rows(structure, offset, limit))
+
+
+_FIXED_CHUNK_RECORDS = 10_000
+
+
+def iter_table_rows(
+    structure: dict[str, Any],
+    offset: int = 0,
+    limit: int | None = None,
+) -> Iterator[list[Any]]:
+    """Yield rows [offset, offset+limit) in one sequential pass.
+
+    Use this for large exports: fixed-width tables are read in bounded ranged
+    chunks, and delimited tables are streamed once from the nearest indexed row.
+    """
     backend, path = _reader(structure)
 
     record_count = structure.get("record_count") or 0
     end = record_count if limit is None else min(offset + limit, record_count)
     if offset >= end:
-        return []
+        return
 
     table_type = structure["structure_type"]
     fields = structure.get("fields", [])
@@ -407,16 +426,18 @@ def read_table_data(
         record_length = structure.get("record_length")
         if not record_length:
             raise ValueError("Fixed-width table has no record_length")
-        blob = backend.read_range(path, file_offset + offset * record_length, (end - offset) * record_length)
         decode = _decode_character_field if table_type == "Table_Character" else _decode_binary_field
-        rows = []
-        for r in range(len(blob) // record_length):
-            record = blob[r * record_length:(r + 1) * record_length]
-            rows.append([_postprocess(decode(record, f), f) for f in fields])
-        return rows
+        for chunk_start in range(offset, end, _FIXED_CHUNK_RECORDS):
+            n = min(_FIXED_CHUNK_RECORDS, end - chunk_start)
+            blob = backend.read_range(path, file_offset + chunk_start * record_length, n * record_length)
+            for r in range(len(blob) // record_length):
+                record = blob[r * record_length:(r + 1) * record_length]
+                yield [_postprocess(decode(record, f), f) for f in fields]
+        return
 
     delimiter = FIELD_DELIMITERS.get((structure.get("field_delimiter") or "comma").lower(), ",")
-    return _read_delimited_table(backend, path, fields, file_offset, offset, end, delimiter)
+    index_key = (structure.get("source"), path, file_offset)
+    yield from _iter_delimited_rows(backend, path, fields, file_offset, offset, end, delimiter, index_key)
 
 
 def _decode_character_field(record: bytes, field: dict[str, Any]) -> Any:
@@ -436,31 +457,72 @@ def _decode_binary_field(record: bytes, field: dict[str, Any]) -> Any:
     return np.frombuffer(record, dtype=np.dtype(np_type), count=1, offset=loc)[0].item()
 
 
-def _read_delimited_table(
+# Sparse row index for delimited tables: every _CHECKPOINT_ROWS records we remember
+# the byte offset where that record starts, so later reads (paging, exports) begin
+# with a ranged read near the requested row instead of rescanning the file prefix.
+_CHECKPOINT_ROWS = 1_000
+_MAX_INDEXED_TABLES = 256
+_row_index: OrderedDict[tuple[Any, ...], dict[int, int]] = OrderedDict()
+_row_index_lock = threading.Lock()
+
+
+def _nearest_checkpoint(key: tuple[Any, ...], row: int, file_offset: int) -> tuple[int, int]:
+    with _row_index_lock:
+        checkpoints = _row_index.get(key)
+        if not checkpoints:
+            return 0, file_offset
+        _row_index.move_to_end(key)
+        best = max((r for r in checkpoints if r <= row), default=0)
+        return best, checkpoints.get(best, file_offset)
+
+
+def _save_checkpoints(key: tuple[Any, ...], found: dict[int, int]) -> None:
+    if not found:
+        return
+    with _row_index_lock:
+        _row_index.setdefault(key, {}).update(found)
+        _row_index.move_to_end(key)
+        while len(_row_index) > _MAX_INDEXED_TABLES:
+            _row_index.popitem(last=False)
+
+
+def _iter_delimited_rows(
     backend: Any,
     path: str,
     fields: list[dict[str, Any]],
     file_offset: int,
     start: int,
     end: int,
-    delimiter: str = ",",
-) -> list[list[Any]]:
-    """Stream delimited records, honoring the label's field_delimiter and quoting."""
-    rows: list[list[Any]] = []
-    with backend.open_stream(path, file_offset) as raw:
-        text = io.TextIOWrapper(io.BufferedReader(raw) if not hasattr(raw, "peek") else raw,
-                                encoding="utf-8", errors="replace", newline="")
-        for i, values in enumerate(csv.reader(text, delimiter=delimiter)):
-            if i < start:
-                continue
-            if i >= end:
-                break
-            row: list[Any] = []
-            for j, field in enumerate(fields):
-                raw_val = values[j].strip() if j < len(values) else ""
-                row.append(_postprocess(_coerce_value(raw_val, field.get("data_type", "ASCII_String")), field))
-            rows.append(row)
-    return rows
+    delimiter: str,
+    index_key: tuple[Any, ...],
+) -> Iterator[list[Any]]:
+    """Stream delimited records, honoring the label's field_delimiter and quoting.
+
+    PDS4 delimited records end with a record delimiter (CRLF) and fields cannot
+    contain one, so each line is one record and its byte offset is known.
+    """
+    row, pos = _nearest_checkpoint(index_key, start, file_offset)
+    found: dict[int, int] = {}
+    try:
+        with backend.open_stream(path, pos) as raw:
+            stream = raw if hasattr(raw, "peek") else io.BufferedReader(raw)
+            for line in stream:
+                if row >= end:
+                    break
+                if row % _CHECKPOINT_ROWS == 0:
+                    found[row] = pos
+                if row >= start:
+                    text = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                    values = next(csv.reader([text], delimiter=delimiter), [])
+                    out: list[Any] = []
+                    for j, field in enumerate(fields):
+                        raw_val = values[j].strip() if j < len(values) else ""
+                        out.append(_postprocess(_coerce_value(raw_val, field.get("data_type", "ASCII_String")), field))
+                    yield out
+                pos += len(line)
+                row += 1
+    finally:
+        _save_checkpoints(index_key, found)
 
 
 def _postprocess(value: Any, field: dict[str, Any]) -> Any:

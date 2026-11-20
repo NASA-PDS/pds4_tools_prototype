@@ -6,7 +6,8 @@
 
 Checks: UI served, API healthy, a label opens from the "local" source, an image renders,
 a table page reads, and paths outside the configured root are rejected. When the source
-isn't the bundled test_data, pass --label (relative to the source root) and --kind.
+isn't the bundled test_data, pass --label (an image label) and --table-label (a table
+label), both relative to the source root.
 Standard library only; exits non-zero on the first failure.
 """
 from __future__ import annotations

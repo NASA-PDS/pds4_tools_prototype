@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_CLEANUP_INTERVAL_SECONDS = 600
+CLEANUP_INTERVAL_SECONDS = 600
 _MEMO_SIZE = 64
 
 
@@ -114,7 +114,7 @@ class LabelStore:
 
     def maybe_cleanup(self) -> None:
         now = time.time()
-        if now - self._last_cleanup < _CLEANUP_INTERVAL_SECONDS:
+        if now - self._last_cleanup < CLEANUP_INTERVAL_SECONDS:
             return
         self._last_cleanup = now
         threading.Thread(target=self.cleanup, daemon=True).start()

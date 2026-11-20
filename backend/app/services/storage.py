@@ -209,12 +209,16 @@ class S3StorageBackend:
         for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix, Delimiter="/"):
             for cp in page.get("CommonPrefixes", []):
                 dir_key = cp["Prefix"].rstrip("/")
+                if dir_key.split("/")[-1].startswith("."):
+                    continue  # hidden, same as the local backend
                 dirs.append(FileEntry(name=dir_key.split("/")[-1], path=self._uri(dir_key), is_dir=True))
             for obj in page.get("Contents", []):
                 key = obj["Key"]
                 if key == prefix:
                     continue
                 name = key.split("/")[-1]
+                if name.startswith("."):
+                    continue  # hidden, same as the local backend
                 suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
                 files.append(FileEntry(name=name, path=self._uri(key), is_dir=False,
                                        size=obj.get("Size"), is_label=suffix in LABEL_EXTS))
