@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "pds4-viewer-backend"
 version = "0.1.0"
 description = "Backend API for PDS4 Data Viewer"
-readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
 dependencies = [
