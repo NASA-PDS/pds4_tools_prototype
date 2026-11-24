@@ -5,6 +5,9 @@ on:
     branches:
       - '**'
       - '!master'
+  pull_request:
+    branches:
+      - master
 
 jobs:
   backend-tests:
@@ -13,8 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          lfs: true
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -24,7 +25,8 @@ jobs:
       - name: Install backend dependencies
         run: |
           cd backend
-          pip install -e ".[dev]"
+          pip install --only-binary :all: --require-hashes -r requirements-dev.lock
+          pip install --only-binary :all: --no-deps --no-build-isolation -e .
 
       - name: Lint backend
         run: |
@@ -34,7 +36,15 @@ jobs:
       - name: Run backend tests
         run: |
           cd backend
-          pytest -x -q
+          mkdir -p test-results  # JUnit report directory (see addopts in pyproject.toml)
+          pytest -q --cov=app --cov-report=term-missing
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-backend
+          path: backend/test-results/junit-backend.xml
 
   frontend-tests:
     name: Frontend Tests
@@ -42,8 +52,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          lfs: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -55,7 +63,7 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd frontend
-          npm ci
+          npm ci --ignore-scripts
 
       - name: Lint frontend
         run: |
@@ -71,3 +79,112 @@ jobs:
         run: |
           cd frontend
           npm test
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit
+          path: frontend/test-results/junit-unit.xml
+
+  e2e-tests:
+    name: End-to-End Tests
+    # Pinned: Playwright's bundled Chromium does not support ubuntu-latest (26.04) yet.
+    runs-on: ubuntu-24.04
+    needs: [backend-tests, frontend-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          pip install --only-binary :all: --require-hashes -r backend/requirements.lock
+          pip install --only-binary :all: --no-deps --no-build-isolation -e ./backend
+          cd frontend
+          npm ci --ignore-scripts
+          npm run e2e:install
+
+      # Playwright starts the backend (PDS_LOCAL_ROOT=test_data) and the Vite dev server itself.
+      - name: Run Playwright
+        run: |
+          cd frontend
+          npm run test:e2e
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-e2e
+          path: frontend/test-results/junit-e2e.xml
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+
+  docker-image:
+    name: Docker Image Build + Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build image
+        run: docker build -t pds4-viewer:ci .
+
+      - name: Run container
+        run: |
+          docker run -d --name viewer -p 8000:8000 pds4-viewer:ci
+          for i in $(seq 1 30); do curl -sf http://localhost:8000/api/health && break; sleep 2; done
+
+      - name: Smoke test
+        run: python3 scripts/smoke_test.py http://localhost:8000
+
+      - name: Container logs
+        if: always()
+        run: docker logs viewer
+
+  traceability:
+    name: Requirements Traceability
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests, e2e-tests]
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download JUnit reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: junit-*
+          path: reports
+          merge-multiple: true
+
+      - name: Build traceability matrix
+        run: |
+          python traceability/trace_matrix.py --strict > /dev/null
+          cat trace-matrix.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload traceability matrix and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traceability
+          path: |
+            trace-matrix.md
+            trace-matrix.json
+            reports/*.xml

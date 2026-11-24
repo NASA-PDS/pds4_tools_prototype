@@ -1,5 +1,55 @@
 const API_BASE = "/api";
 
+const LABEL_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/** Validated, URL-encoded label id for use as a path segment. */
+function labelSeg(labelId: string): string {
+  if (!LABEL_ID_RE.test(labelId)) throw new Error(`Invalid label id: ${labelId}`);
+  return encodeURIComponent(labelId);
+}
+
+/** Validated non-negative integer for use as a path segment or query value. */
+function intSeg(value: number, name: string): string {
+  if (!Number.isInteger(value) || value < 0) throw new Error(`Invalid ${name}: ${value}`);
+  return encodeURIComponent(String(value));
+}
+
+/** Validated `<labelId>/<structureIndex>` path. */
+function structureSeg(labelId: string, structureIndex: number): string {
+  return `${labelSeg(labelId)}/${intSeg(structureIndex, "structure index")}`;
+}
+
+/**
+ * Resolve an API path to an absolute same-origin URL under /api/. Every request goes
+ * through this, so user-controlled values can never redirect a request elsewhere.
+ */
+function apiUrl(path: string): string {
+  const origin = globalThis.location?.origin ?? "http://localhost";
+  const url = new URL(`${API_BASE}${path}`, origin);
+  if (url.origin !== origin || !url.pathname.startsWith(`${API_BASE}/`)) {
+    throw new Error(`Refusing request outside the API: ${path}`);
+  }
+  return url.toString();
+}
+
+/* ---- Server configuration ---- */
+
+export interface ServerConfig {
+  upload_enabled: boolean;
+  max_upload_mb: number;
+}
+
+/** Deployment features. Falls back to the most restrictive settings if unavailable. */
+export async function getServerConfig(): Promise<ServerConfig> {
+  try {
+    const resp = await fetch(apiUrl("/config"));
+    if (!resp.ok) throw new Error(resp.statusText);
+    return await resp.json();
+  } catch {
+    return { upload_enabled: false, max_upload_mb: 0 };
+  }
+}
+
 /* ---- Browse / Storage Backend types ---- */
 
 export interface StorageSource {
@@ -23,7 +73,7 @@ export interface BrowseResponse {
 }
 
 export async function getStorageSources(): Promise<StorageSource[]> {
-  const resp = await fetch(`${API_BASE}/browse/sources`);
+  const resp = await fetch(apiUrl(`/browse/sources`));
   if (!resp.ok) throw new Error("Failed to fetch storage sources");
   return resp.json();
 }
@@ -34,7 +84,7 @@ export async function browseDirectory(
 ): Promise<BrowseResponse> {
   const params = new URLSearchParams({ source });
   if (path) params.set("path", path);
-  const resp = await fetch(`${API_BASE}/browse/list?${params}`);
+  const resp = await fetch(apiUrl(`/browse/list?${params}`));
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     throw new Error(err.detail || "Failed to browse directory");
@@ -47,7 +97,7 @@ export async function openLabelFromStorage(
   path: string,
 ): Promise<LabelUploadResponse> {
   const params = new URLSearchParams({ source, path });
-  const resp = await fetch(`${API_BASE}/browse/open?${params}`, {
+  const resp = await fetch(apiUrl(`/browse/open?${params}`), {
     method: "POST",
   });
   if (!resp.ok) {
@@ -137,9 +187,12 @@ export interface ImageMetadata {
   name: string;
   structure_type: string;
   dimensions: number[];
+  axis_names?: string[];
   element_data_type: string;
   width: number;
   height: number;
+  bands: number;
+  band_axis: number | null;
 }
 
 export interface ImageStatistics {
@@ -150,6 +203,7 @@ export interface ImageStatistics {
   shape: number[];
   dtype: string;
   percentiles: Record<string, number>;
+  valid_count?: number;
 }
 
 export interface ImageRenderParams {
@@ -173,7 +227,7 @@ export async function uploadLabel(
       form.append("data_files", df);
     }
   }
-  const resp = await fetch(`${API_BASE}/labels/upload`, {
+  const resp = await fetch(apiUrl(`/labels/upload`), {
     method: "POST",
     body: form,
   });
@@ -187,7 +241,7 @@ export async function uploadLabel(
 export async function getLabels(): Promise<
   { label_id: string; filename: string }[]
 > {
-  const resp = await fetch(`${API_BASE}/labels`);
+  const resp = await fetch(apiUrl(`/labels`));
   if (!resp.ok) throw new Error("Failed to fetch labels");
   return resp.json();
 }
@@ -195,7 +249,7 @@ export async function getLabels(): Promise<
 export async function getLabelDetail(
   labelId: string,
 ): Promise<LabelMetadata> {
-  const resp = await fetch(`${API_BASE}/labels/${labelId}`);
+  const resp = await fetch(apiUrl(`/labels/${labelSeg(labelId)}`));
   if (!resp.ok) throw new Error("Failed to fetch label");
   return resp.json();
 }
@@ -203,7 +257,7 @@ export async function getLabelDetail(
 export async function getStructures(
   labelId: string,
 ): Promise<StructureSummary[]> {
-  const resp = await fetch(`${API_BASE}/labels/${labelId}/structures`);
+  const resp = await fetch(apiUrl(`/labels/${labelSeg(labelId)}/structures`));
   if (!resp.ok) throw new Error("Failed to fetch structures");
   return resp.json();
 }
@@ -213,10 +267,15 @@ export async function getTableMetadata(
   structureIndex: number,
 ): Promise<TableMetadata> {
   const resp = await fetch(
-    `${API_BASE}/tables/${labelId}/${structureIndex}`,
+    apiUrl(`/tables/${structureSeg(labelId, structureIndex)}`),
   );
   if (!resp.ok) throw new Error("Failed to fetch table metadata");
   return resp.json();
+}
+
+/** URL for the streamed CSV export of a table structure. */
+export function tableCsvUrl(labelId: string, structureIndex: number): string {
+  return apiUrl(`/tables/${structureSeg(labelId, structureIndex)}/data?format=csv`);
 }
 
 export async function getTableData(
@@ -226,7 +285,7 @@ export async function getTableData(
   limit = 100,
 ): Promise<TableDataResponse> {
   const resp = await fetch(
-    `${API_BASE}/tables/${labelId}/${structureIndex}/data?offset=${offset}&limit=${limit}`,
+    apiUrl(`/tables/${structureSeg(labelId, structureIndex)}/data?offset=${intSeg(offset, "offset")}&limit=${intSeg(limit, "limit")}`),
   );
   if (!resp.ok) throw new Error("Failed to fetch table data");
   return resp.json();
@@ -238,7 +297,7 @@ export async function getPlotData(
   spec: PlotSpec,
 ): Promise<PlotDataResponse> {
   const resp = await fetch(
-    `${API_BASE}/tables/${labelId}/${structureIndex}/plot`,
+    apiUrl(`/tables/${structureSeg(labelId, structureIndex)}/plot`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -257,7 +316,7 @@ export async function getImageMetadata(
   structureIndex: number,
 ): Promise<ImageMetadata> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}`,
+    apiUrl(`/images/${structureSeg(labelId, structureIndex)}`),
   );
   if (!resp.ok) throw new Error("Failed to fetch image metadata");
   return resp.json();
@@ -266,9 +325,10 @@ export async function getImageMetadata(
 export async function getImageStatistics(
   labelId: string,
   structureIndex: number,
+  band = 0,
 ): Promise<ImageStatistics> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}/statistics`,
+    apiUrl(`/images/${structureSeg(labelId, structureIndex)}/statistics?band=${intSeg(band, "band")}`),
   );
   if (!resp.ok) throw new Error("Failed to fetch image statistics");
   return resp.json();
@@ -280,7 +340,7 @@ export async function renderImage(
   params: ImageRenderParams,
 ): Promise<Blob> {
   const resp = await fetch(
-    `${API_BASE}/images/${labelId}/${structureIndex}/render`,
+    apiUrl(`/images/${structureSeg(labelId, structureIndex)}/render`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -292,4 +352,24 @@ export async function renderImage(
     throw new Error(err.detail || "Image render failed");
   }
   return resp.blob();
+}
+
+export interface PixelValue {
+  x: number;
+  y: number;
+  band: number;
+  value: number | null;
+}
+
+export async function getPixelValue(
+  labelId: string,
+  structureIndex: number,
+  x: number,
+  y: number,
+  band = 0,
+): Promise<PixelValue> {
+  const params = new URLSearchParams({ x: String(x), y: String(y), band: String(band) });
+  const resp = await fetch(apiUrl(`/images/${structureSeg(labelId, structureIndex)}/pixel?${params}`));
+  if (!resp.ok) throw new Error("Failed to fetch pixel value");
+  return resp.json();
 }

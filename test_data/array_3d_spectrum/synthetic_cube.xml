@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic test product for the PDS4 Viewer: little-endian float cube with a missing_constant
+     block in the top-left corner of every band and a scaling factor. Not a real observation. -->
+<Product_Observational xmlns="http://pds.nasa.gov/pds4/pds/v1">
+  <Identification_Area>
+    <logical_identifier>urn:nasa:pds:pds4_viewer_test:data:synthetic_cube</logical_identifier>
+    <version_id>1.0</version_id>
+    <title>Synthetic LSB Spectral Cube</title>
+    <information_model_version>1.22.0.0</information_model_version>
+    <product_class>Product_Observational</product_class>
+  </Identification_Area>
+  <File_Area_Observational>
+    <File><file_name>synthetic_cube.img</file_name></File>
+    <Array_3D_Spectrum>
+      <name>Synthetic Spectral Cube</name>
+      <local_identifier>cube</local_identifier>
+      <offset unit="byte">0</offset>
+      <axes>3</axes>
+      <axis_index_order>Last Index Fastest</axis_index_order>
+      <Element_Array>
+        <data_type>IEEE754LSBSingle</data_type>
+        <scaling_factor>0.5</scaling_factor>
+      </Element_Array>
+      <Axis_Array><axis_name>Band</axis_name><elements>3</elements><sequence_number>1</sequence_number></Axis_Array>
+      <Axis_Array><axis_name>Line</axis_name><elements>48</elements><sequence_number>2</sequence_number></Axis_Array>
+      <Axis_Array><axis_name>Sample</axis_name><elements>64</elements><sequence_number>3</sequence_number></Axis_Array>
+      <Special_Constants><missing_constant>-9999.0</missing_constant></Special_Constants>
+    </Array_3D_Spectrum>
+  </File_Area_Observational>
+</Product_Observational>

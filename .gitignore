@@ -134,3 +134,13 @@ frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
 frontend/tsconfig.tsbuildinfo
+trace-matrix.md
+trace-matrix.json
+*.tsbuildinfo
+**/test-results/*
+# Keep the backend JUnit report directory (pyproject addopts writes there)
+!backend/test-results/
+!backend/test-results/.gitkeep
+playwright-report/
+.ruff_cache/
+.coverage

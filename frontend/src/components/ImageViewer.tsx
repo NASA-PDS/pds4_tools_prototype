@@ -3,6 +3,7 @@ import {
   getImageMetadata,
   renderImage,
   getImageStatistics,
+  getPixelValue,
 } from "../services/api";
 import type { ImageMetadata, ImageStatistics } from "../services/api";
 
@@ -44,17 +45,15 @@ export default function ImageViewer({
   const [stretch, setStretch] = useState("linear");
   const [percentileLow, setPercentileLow] = useState(1);
   const [percentileHigh, setPercentileHigh] = useState(99);
+  const [band, setBand] = useState(0);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  const [pixelInfo, setPixelInfo] = useState<{
-    x: number;
-    y: number;
-    value: number;
-  } | null>(null);
+  const [pixelInfo, setPixelInfo] = useState<{ x: number; y: number } | null>(null);
+  const [pixelValue, setPixelValue] = useState<number | null | undefined>(undefined);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -66,17 +65,35 @@ export default function ImageViewer({
     setError(null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setBand(0);
 
-    Promise.all([
-      getImageMetadata(labelId, structureIndex),
-      getImageStatistics(labelId, structureIndex),
-    ])
-      .then(([m, s]) => {
-        setMeta(m);
-        setStats(s);
-      })
+    getImageMetadata(labelId, structureIndex)
+      .then(setMeta)
       .catch((err) => setError(err.message));
   }, [labelId, structureIndex]);
+
+  // Statistics are per band.
+  useEffect(() => {
+    if (!meta) return;
+    setStats(null);
+    getImageStatistics(labelId, structureIndex, band)
+      .then(setStats)
+      .catch((err) => setError(err.message));
+  }, [meta, labelId, structureIndex, band]);
+
+  // Look up the pixel value under the cursor (debounced; the server caches the decoded plane).
+  useEffect(() => {
+    if (!pixelInfo) {
+      setPixelValue(undefined);
+      return;
+    }
+    const handle = setTimeout(() => {
+      getPixelValue(labelId, structureIndex, pixelInfo.x, pixelInfo.y, band)
+        .then((p) => setPixelValue(p.value))
+        .catch(() => setPixelValue(undefined));
+    }, 120);
+    return () => clearTimeout(handle);
+  }, [pixelInfo, labelId, structureIndex, band]);
 
   const loadImage = useCallback(async () => {
     setLoading(true);
@@ -87,6 +104,7 @@ export default function ImageViewer({
         stretch,
         percentile_low: percentileLow,
         percentile_high: percentileHigh,
+        band,
       });
       const url = URL.createObjectURL(blob);
       setImageSrc((prev) => {
@@ -98,7 +116,7 @@ export default function ImageViewer({
     } finally {
       setLoading(false);
     }
-  }, [labelId, structureIndex, colormap, stretch, percentileLow, percentileHigh]);
+  }, [labelId, structureIndex, colormap, stretch, percentileLow, percentileHigh, band]);
 
   useEffect(() => {
     if (meta) {
@@ -139,7 +157,7 @@ export default function ImageViewer({
           ((e.clientY - rect.top) / rect.height) * meta.height,
         );
         if (px >= 0 && px < meta.width && py >= 0 && py < meta.height) {
-          setPixelInfo({ x: px, y: py, value: 0 });
+          setPixelInfo((prev) => (prev && prev.x === px && prev.y === py ? prev : { x: px, y: py }));
         } else {
           setPixelInfo(null);
         }
@@ -183,7 +201,8 @@ export default function ImageViewer({
         <div>
           <h2 className="text-lg font-heading font-semibold text-gray-900 dark:text-white">{meta.name}</h2>
           <p className="text-sm text-gray-600 dark:text-nasa-gray-300 mt-0.5">
-            {meta.width} × {meta.height} · {meta.element_data_type} ·{" "}
+            {meta.width} × {meta.height}
+            {meta.bands > 1 ? ` × ${meta.bands} bands` : ""} · {meta.element_data_type} ·{" "}
             {meta.structure_type}
           </p>
         </div>
@@ -192,6 +211,30 @@ export default function ImageViewer({
       {/* Controls */}
       <div className="card">
         <div className="flex flex-wrap gap-4 items-end">
+          {meta.bands > 1 && (
+            <div>
+              <label
+                htmlFor="band-input"
+                className="block text-xs text-gray-600 dark:text-nasa-gray-300 mb-1.5 font-medium"
+              >
+                Band (0–{meta.bands - 1})
+              </label>
+              <input
+                id="band-input"
+                type="number"
+                className="input-field text-sm w-20"
+                value={band}
+                min={0}
+                max={meta.bands - 1}
+                step={1}
+                onChange={(e) => {
+                  const v = Math.round(Number(e.target.value));
+                  if (Number.isFinite(v)) setBand(Math.min(Math.max(v, 0), meta.bands - 1));
+                }}
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-xs text-gray-600 dark:text-nasa-gray-300 mb-1.5 font-medium">
               Colormap
@@ -324,7 +367,9 @@ export default function ImageViewer({
         {/* Pixel info overlay */}
         {pixelInfo && (
           <div className="absolute bottom-2 left-2 bg-white/80 dark:bg-nasa-gray-900/80 backdrop-blur-sm text-xs text-gray-700 dark:text-nasa-gray-200 px-2.5 py-1.5 rounded-md font-mono border border-gray-200 dark:border-nasa-gray-700/30">
-            ({pixelInfo.x}, {pixelInfo.y}) | Zoom: {(zoom * 100).toFixed(0)}%
+            ({pixelInfo.x}, {pixelInfo.y})
+            {pixelValue !== undefined && ` = ${pixelValue === null ? "null" : pixelValue}`} | Zoom:{" "}
+            {(zoom * 100).toFixed(0)}%
           </div>
         )}
       </div>

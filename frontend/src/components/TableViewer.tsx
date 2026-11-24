@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getTableData, getTableMetadata } from "../services/api";
+import { getTableData, getTableMetadata, tableCsvUrl } from "../services/api";
 import type { TableDataResponse, TableMetadata } from "../services/api";
 
 interface TableViewerProps {
@@ -114,7 +114,7 @@ export default function TableViewer({
           </p>
         </div>
         <a
-          href={`/api/tables/${labelId}/${structureIndex}/data?format=csv&limit=${meta.record_count}`}
+          href={tableCsvUrl(labelId, structureIndex)}
           className="btn-secondary text-sm"
           download
         >

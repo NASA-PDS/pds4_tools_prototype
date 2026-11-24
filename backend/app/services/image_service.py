@@ -24,7 +24,8 @@ def get_image_statistics(data: np.ndarray) -> dict[str, Any]:
     flat = data.ravel().astype(float)
     valid = flat[np.isfinite(flat)]
     if len(valid) == 0:
-        return {"min": 0, "max": 0, "mean": 0, "std": 0, "percentiles": {}}
+        return {"min": 0, "max": 0, "mean": 0, "std": 0, "shape": list(data.shape),
+                "dtype": str(data.dtype), "percentiles": {}, "valid_count": 0}
 
     return {
         "min": float(np.min(valid)),
@@ -33,6 +34,7 @@ def get_image_statistics(data: np.ndarray) -> dict[str, Any]:
         "std": float(np.std(valid)),
         "shape": list(data.shape),
         "dtype": str(data.dtype),
+        "valid_count": int(len(valid)),
         "percentiles": {
             "1": float(np.percentile(valid, 1)),
             "5": float(np.percentile(valid, 5)),
@@ -48,10 +50,9 @@ def get_image_statistics(data: np.ndarray) -> dict[str, Any]:
 def render_image(data: np.ndarray, params: ImageRenderParams) -> bytes:
     """Render a 2D numpy array to PNG bytes with the specified visualization params."""
     if data.ndim == 1:
-        side = int(np.sqrt(len(data)))
-        data = data.reshape(side, -1)
-    elif data.ndim > 2:
-        data = data[0] if data.shape[0] <= data.shape[-1] else data[:, :, 0]
+        data = data.reshape(1, -1)
+    elif data.ndim != 2:
+        raise ValueError(f"Expected a 2D plane, got shape {data.shape}")
 
     img = data.astype(np.float64)
 
@@ -73,6 +74,8 @@ def render_image(data: np.ndarray, params: ImageRenderParams) -> bytes:
     else:
         img = np.zeros_like(img)
 
+    # Special-constant / non-finite pixels render as black.
+    img = np.nan_to_num(img, nan=0.0, posinf=1.0, neginf=0.0)
     img = _apply_stretch(img, params.stretch)
     img = _apply_colormap(img, params.colormap)
 
@@ -132,10 +135,10 @@ def _array_to_png(rgb: np.ndarray) -> bytes:
     import zlib
 
     height, width = rgb.shape[:2]
-    raw_rows = []
-    for y in range(height):
-        raw_rows.append(b"\x00" + rgb[y].tobytes())
-    raw_data = b"".join(raw_rows)
+    # Prefix each scanline with filter byte 0 (vectorized; avoids a Python loop per row).
+    scanlines = np.zeros((height, width * 3 + 1), dtype=np.uint8)
+    scanlines[:, 1:] = np.ascontiguousarray(rgb, dtype=np.uint8).reshape(height, width * 3)
+    raw_data = scanlines.tobytes()
 
     def _chunk(chunk_type: bytes, data: bytes) -> bytes:
         c = chunk_type + data

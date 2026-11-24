@@ -34,6 +34,7 @@ def client() -> TestClient:
 
 
 class TestBrowseSources:
+    @pytest.mark.req("REQ-02")
     def test_list_sources(self, client: TestClient) -> None:
         resp = client.get("/api/browse/sources")
         assert resp.status_code == 200
@@ -42,6 +43,7 @@ class TestBrowseSources:
         names = [s["name"] for s in data]
         assert "local" in names
 
+    @pytest.mark.req("REQ-02")
     def test_each_source_has_root(self, client: TestClient) -> None:
         resp = client.get("/api/browse/sources")
         for source in resp.json():
@@ -50,6 +52,7 @@ class TestBrowseSources:
 
 
 class TestBrowseList:
+    @pytest.mark.req("REQ-02")
     def test_list_root(self, client: TestClient, tmp_path: Path) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
         assert resp.status_code == 200
@@ -59,11 +62,13 @@ class TestBrowseList:
         assert "subdir" in names
         assert "data.img" in names
 
+    @pytest.mark.req("REQ-02")
     def test_hidden_files_excluded(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
         names = [e["name"] for e in resp.json()["entries"]]
         assert ".hidden" not in names
 
+    @pytest.mark.req("REQ-02")
     def test_label_files_marked(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
         entries = resp.json()["entries"]
@@ -72,31 +77,51 @@ class TestBrowseList:
         assert label_entry["is_label"] is True
         assert data_entry["is_label"] is False
 
+    @pytest.mark.req("REQ-02")
     def test_directories_marked(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
         entries = resp.json()["entries"]
         subdir_entry = next(e for e in entries if e["name"] == "subdir")
         assert subdir_entry["is_dir"] is True
 
-    def test_has_parent_path(self, client: TestClient) -> None:
+    @pytest.mark.req("REQ-02", "REQ-14", "BUG-02")
+    def test_root_has_no_parent(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
-        data = resp.json()
-        assert data["parent_path"] is not None
+        assert resp.json()["parent_path"] is None
 
+    @pytest.mark.req("REQ-02")
+    def test_subdir_parent_is_root(self, client: TestClient, setup_local_backend: Path) -> None:
+        resp = client.get("/api/browse/list", params={"source": "local", "path": str(setup_local_backend / "subdir")})
+        assert resp.json()["parent_path"] == str(setup_local_backend.resolve())
+
+    @pytest.mark.req("REQ-14", "BUG-02")
+    def test_cannot_browse_outside_root(self, client: TestClient) -> None:
+        resp = client.get("/api/browse/list", params={"source": "local", "path": "/usr"})
+        assert resp.status_code == 404
+
+    @pytest.mark.req("REQ-14", "BUG-02")
+    def test_cannot_escape_root_with_dotdot(self, client: TestClient, setup_local_backend: Path) -> None:
+        resp = client.get("/api/browse/list", params={"source": "local", "path": str(setup_local_backend / "..")})
+        assert resp.status_code == 404
+
+    @pytest.mark.req("REQ-02")
     def test_browse_subdirectory(self, client: TestClient, tmp_path: Path) -> None:
         subdir_path = str(tmp_path / "test_data" / "subdir")
         resp = client.get("/api/browse/list", params={"source": "local", "path": subdir_path})
         assert resp.status_code == 200
         assert resp.json()["entries"] == []
 
+    @pytest.mark.req("REQ-02")
     def test_invalid_source(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "nonexistent"})
         assert resp.status_code == 404
 
+    @pytest.mark.req("REQ-02")
     def test_invalid_path(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local", "path": "/nonexistent/path"})
         assert resp.status_code == 404
 
+    @pytest.mark.req("REQ-02")
     def test_directories_sorted_first(self, client: TestClient) -> None:
         resp = client.get("/api/browse/list", params={"source": "local"})
         entries = resp.json()["entries"]
@@ -108,6 +133,7 @@ class TestBrowseList:
 
 
 class TestBrowseOpen:
+    @pytest.mark.req("REQ-02", "REQ-03")
     def test_open_label(self, client: TestClient, tmp_path: Path) -> None:
         # Create a proper PDS4 label
         label_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -136,32 +162,57 @@ class TestBrowseOpen:
         assert "label_id" in data
         assert data["filename"] == "test_label.xml"
 
+    @pytest.mark.req("REQ-14", "BUG-02")
+    def test_open_label_outside_root_rejected(self, client: TestClient, tmp_path: Path) -> None:
+        outside = tmp_path / "outside.xml"
+        outside.write_text("<Product_Observational/>")
+        resp = client.post("/api/browse/open", params={"source": "local", "path": str(outside)})
+        assert resp.status_code == 404
+
+    @pytest.mark.req("REQ-02")
     def test_open_nonexistent_label(self, client: TestClient) -> None:
         resp = client.post("/api/browse/open", params={"source": "local", "path": "/nonexistent/label.xml"})
         assert resp.status_code == 404
 
+    @pytest.mark.req("REQ-02")
     def test_open_invalid_source(self, client: TestClient) -> None:
         resp = client.post("/api/browse/open", params={"source": "nonexistent", "path": "/some/path.xml"})
         assert resp.status_code == 404
 
 
 class TestLocalFilesystemBackend:
+    @pytest.mark.req("REQ-02")
     def test_root_property(self, tmp_path: Path) -> None:
         backend = LocalFilesystemBackend(root_path=str(tmp_path))
         assert backend.root == str(tmp_path)
 
+    @pytest.mark.req("REQ-02")
     def test_file_exists(self, tmp_path: Path) -> None:
         (tmp_path / "exists.txt").write_text("hello")
         backend = LocalFilesystemBackend(root_path=str(tmp_path))
         assert backend.file_exists(str(tmp_path / "exists.txt")) is True
         assert backend.file_exists(str(tmp_path / "nope.txt")) is False
 
+    @pytest.mark.req("REQ-02")
     def test_read_file(self, tmp_path: Path) -> None:
         (tmp_path / "data.bin").write_bytes(b"\x01\x02\x03")
         backend = LocalFilesystemBackend(root_path=str(tmp_path))
         assert backend.read_file(str(tmp_path / "data.bin")) == b"\x01\x02\x03"
 
-    def test_get_parent(self) -> None:
-        backend = LocalFilesystemBackend()
-        assert backend.get_parent("/home/user/data") == "/home/user"
+    @pytest.mark.req("REQ-02", "REQ-14")
+    def test_get_parent(self, tmp_path: Path) -> None:
+        (tmp_path / "a" / "b").mkdir(parents=True)
+        backend = LocalFilesystemBackend(root_path=str(tmp_path))
+        assert backend.get_parent(str(tmp_path / "a" / "b")) == str((tmp_path / "a").resolve())
+        assert backend.get_parent(str(tmp_path)) is None
         assert backend.get_parent("/") is None
+
+    @pytest.mark.req("REQ-14", "BUG-02")
+    def test_file_outside_root_not_readable(self, tmp_path: Path) -> None:
+        root = tmp_path / "root"
+        root.mkdir()
+        (tmp_path / "secret.txt").write_text("nope")
+        backend = LocalFilesystemBackend(root_path=str(root))
+        assert backend.file_exists(str(tmp_path / "secret.txt")) is False
+        with pytest.raises(FileNotFoundError):
+            backend.read_file(str(root / ".." / "secret.txt"))

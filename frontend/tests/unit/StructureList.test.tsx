@@ -25,7 +25,7 @@ const mockStructures: StructureSummary[] = [
 ];
 
 describe("StructureList", () => {
-  it("renders all structures", () => {
+  it("[REQ-03] renders all structures", () => {
     render(
       <StructureList
         structures={mockStructures}
@@ -37,7 +37,7 @@ describe("StructureList", () => {
     expect(screen.getByText("Test Image")).toBeInTheDocument();
   });
 
-  it("calls onSelect when a structure is clicked", () => {
+  it("[REQ-03] calls onSelect when a structure is clicked", () => {
     const onSelect = vi.fn();
     render(
       <StructureList
@@ -50,7 +50,7 @@ describe("StructureList", () => {
     expect(onSelect).toHaveBeenCalledWith(mockStructures[0]);
   });
 
-  it("shows record count for tables", () => {
+  it("[REQ-03] shows record count for tables", () => {
     render(
       <StructureList
         structures={mockStructures}
@@ -61,7 +61,7 @@ describe("StructureList", () => {
     expect(screen.getByText(/100 records/)).toBeInTheDocument();
   });
 
-  it("shows dimensions for arrays", () => {
+  it("[REQ-03] shows dimensions for arrays", () => {
     render(
       <StructureList
         structures={mockStructures}
