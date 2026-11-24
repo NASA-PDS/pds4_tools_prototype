@@ -36,6 +36,7 @@ jobs:
       - name: Run backend tests
         run: |
           cd backend
+          mkdir -p test-results  # JUnit report directory (see addopts in pyproject.toml)
           pytest -q --cov=app --cov-report=term-missing
 
       - name: Upload JUnit report

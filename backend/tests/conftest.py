@@ -88,6 +88,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "req(*keys): requirement/bug keys from traceability/traceability.json")
+    # Create the --junitxml report directory up front (CI and local runs alike).
+    xmlpath = getattr(config.option, "xmlpath", None)
+    if xmlpath:
+        Path(xmlpath).parent.mkdir(parents=True, exist_ok=True)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
